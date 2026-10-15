@@ -64,6 +64,10 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .sources .kind { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .sources button { font: inherit; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 4px; border-radius: 4px; }
 .sources button:hover { color: var(--fg); }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.ghost { font: inherit; font-size: 13px; font-weight: 600; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+.ghost:hover { border-color: var(--accent); }
+.clip { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
 .presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .presets button { font: inherit; font-size: 12.5px; font-weight: 600; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
 .presets button:hover { border-color: var(--accent); }
@@ -81,13 +85,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
 <div class="wrap">
   <header>
     <h1>Library Cover Maker</h1>
-    <p>Add up to 5 videos or pictures, type your library name, and get an <strong>animated WebP</strong> cover that cuts between random moments from each one. Pictures get a slow zoom. Every click picks new random moments.</p>
+    <p>Add up to 5 videos or pictures, or pick a folder and let it choose 5 at random. Type your library name and get an <strong>animated WebP</strong> cover that cuts between moments from each one. Choose the moment for each video, or leave it random. Pictures get a slow zoom.</p>
   </header>
 
   <div class="bench">
     <section class="stage">
       <canvas id="cv" width="960" height="540" aria-label="Cover preview"></canvas>
       <p class="hint">Drag to move the picture. Scroll or use the Zoom slider to resize it. Click a file in the list to preview it.</p>
+
+      <div class="clip" id="clipGroup" hidden>
+        <label for="clipStart">Clip from <span id="clipName"></span> starts at</label>
+        <div class="row"><input id="clipStart" type="range" min="0" max="1000" value="0"><output id="clipOut">random</output></div>
+        <label class="check"><input id="clipRandom" type="checkbox" checked> Pick a random moment each time</label>
+      </div>
 
       <div class="result">
         <div class="group">
@@ -115,6 +125,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
         <span class="lbl">Videos or pictures (up to 5)</span>
         <div class="drop" id="drop" tabindex="0" role="button">Drop files here or <strong>browse</strong><br><span style="font-size:12px">MP4, MKV, WEBM, JPG, PNG, WEBP</span></div>
         <input type="file" id="file" accept="image/*,video/*" multiple hidden>
+        <input type="file" id="folder" webkitdirectory multiple hidden>
+        <div class="btns">
+          <button type="button" class="ghost" id="pickFolder">Pick a folder</button>
+          <button type="button" class="ghost" id="reshuffle" hidden>New random files</button>
+          <button type="button" class="ghost" id="clearAll" hidden>Clear</button>
+        </div>
+        <label class="check" id="autoWrap" hidden><input id="autoShuffle" type="checkbox" checked> New random files each time I click Make</label>
         <ul class="sources" id="sources"></ul>
         <p class="hint" id="srcHint">No files yet, so the preview shows a sample sunset.</p>
       </div>
@@ -167,7 +184,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
   const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
   const $ = id => document.getElementById(id);
   // sources: { el, isVideo, name, url }
-  const state = { sources: [], active: 0, ox: 0, oy: 0 };
+  // start: chosen clip start in seconds, or null for a random moment
+  const state = { sources: [], active: 0, ox: 0, oy: 0, pool: [] };
 
   // Sample background so the tool opens in a working state.
   const sample = document.createElement('canvas'); sample.width = W; sample.height = H;
@@ -264,6 +282,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
     if (files.length) addFiles(files);
   });
 
+  const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  const isMedia = f => f && (f.type.startsWith('image/') || isVideoFile(f));
   const isVideoFile = f => f.type.startsWith('video/') || /\.(mkv|mp4|webm|mov|m4v)$/i.test(f.name);
   const randomTime = (v, len = 0) => Math.random() * Math.max(0, v.duration - len);
 
@@ -285,7 +305,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
         v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
         v.addEventListener('loadeddata', async () => {
           await seekTo(v, randomTime(v));
-          resolve({ el: v, isVideo: true, name, url });
+          resolve({ el: v, isVideo: true, name, url, start: null });
         }, { once: true });
         v.addEventListener('error', () => { URL.revokeObjectURL(url); resolve({ error: `${name}: your browser can’t play this video. Try an MP4.` }); }, { once: true });
       } else {
@@ -298,7 +318,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
   }
 
   async function addFiles(list) {
-    const files = [...list].filter(f => f && (f.type.startsWith('image/') || isVideoFile(f)));
+    const files = [...list].filter(isMedia);
     const room = MAX_FILES - state.sources.length;
     const msgs = [];
     if (files.length > room) msgs.push(room > 0 ? `Only the first ${room} file(s) were added (the limit is ${MAX_FILES}).` : `You already have ${MAX_FILES} files. Remove one to add another.`);
@@ -327,20 +347,94 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
       const li = document.createElement('li');
       li.tabIndex = 0;
       if (i === state.active) li.classList.add('active');
-      li.innerHTML = `<span class="n">${i + 1}</span><span class="name"></span><span class="kind">${s.isVideo ? 'video' : 'picture'}</span><button type="button" aria-label="Remove">×</button>`;
+      li.innerHTML = `<span class="n">${i + 1}</span><span class="name"></span><span class="kind">${s.isVideo ? (s.start == null ? 'random' : fmt(s.start)) : 'picture'}</span><button type="button" aria-label="Remove">×</button>`;
       li.querySelector('.name').textContent = s.name;
       li.addEventListener('click', e => {
         if (e.target.tagName === 'BUTTON') { removeSource(i); return; }
-        state.active = i; renderSources([]); redraw();
+        selectSource(i);
       });
-      li.addEventListener('keydown', e => { if (e.key === 'Enter') { state.active = i; renderSources([]); redraw(); } });
+      li.addEventListener('keydown', e => { if (e.key === 'Enter') selectSource(i); });
       ul.appendChild(li);
     });
     const n = state.sources.length;
-    const base = n ? `${n} of ${MAX_FILES} files. The animation uses a random moment from each.` : 'No files yet, so the preview shows a sample sunset.';
+    const pool = state.pool.length ? ` Picked at random from ${state.pool.length} files in your folder.` : '';
+    const base = n ? `${n} of ${MAX_FILES} files.${pool} Click a video to choose its moment.` : 'No files yet, so the preview shows a sample sunset.';
     $('srcHint').textContent = [base, ...msgs].join(' ');
     drop.hidden = n >= MAX_FILES;
+    $('reshuffle').hidden = $('autoWrap').hidden = !state.pool.length;
+    $('clearAll').hidden = !n;
+    updateClipUI();
   }
+
+  function selectSource(i) {
+    state.active = i;
+    renderSources([]);
+    redraw();
+  }
+
+  function clearSources() {
+    state.sources.forEach(s => s.url && URL.revokeObjectURL(s.url));
+    state.sources = []; state.active = 0;
+  }
+
+  // ---- Per-file clip start ----
+  function updateClipUI() {
+    const s = state.sources[state.active];
+    const show = !!(s && s.isVideo && s.el.duration);
+    $('clipGroup').hidden = !show;
+    if (!show) return;
+    $('clipName').textContent = s.name;
+    const t = s.start ?? s.el.currentTime;
+    $('clipStart').value = Math.round(1000 * t / s.el.duration);
+    $('clipOut').textContent = s.start == null ? 'random' : fmt(s.start);
+    $('clipRandom').checked = s.start == null;
+  }
+  $('clipStart').addEventListener('input', async () => {
+    const s = state.sources[state.active]; if (!s?.isVideo) return;
+    s.start = s.el.duration * $('clipStart').value / 1000;
+    $('autoShuffle').checked = false; // keep the moments you picked
+    $('clipOut').textContent = fmt(s.start);
+    $('clipRandom').checked = false;
+    renderSources([]);
+    await seekTo(s.el, s.start);
+    redraw();
+  });
+  $('clipRandom').addEventListener('change', () => {
+    const s = state.sources[state.active]; if (!s?.isVideo) return;
+    s.start = $('clipRandom').checked ? null : s.el.currentTime;
+    if (!$('clipRandom').checked) $('autoShuffle').checked = false;
+    renderSources([]);
+  });
+
+  // ---- Folder: pick random files ----
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  async function pickFromPool() {
+    clearSources();
+    const msgs = [];
+    const order = shuffle([...state.pool]);
+    $('srcHint').textContent = 'Picking random files…';
+    let tried = 0;
+    for (const f of order) {
+      if (state.sources.length >= MAX_FILES || tried >= MAX_FILES * 4) break;
+      tried++;
+      const s = await loadOne(f);
+      if (s.error) state.pool = state.pool.filter(x => x !== f); // skip files this browser can't open
+      else state.sources.push(s);
+    }
+    if (!state.sources.length) msgs.push('None of the files in that folder could be opened. MP4 videos and JPG or PNG pictures work best.');
+    state.active = 0;
+    renderSources(msgs);
+    redraw();
+  }
+  $('pickFolder').addEventListener('click', () => $('folder').click());
+  $('folder').addEventListener('change', () => {
+    state.pool = [...$('folder').files].filter(isMedia);
+    $('folder').value = '';
+    if (!state.pool.length) { renderSources(['That folder has no videos or pictures in it.']); return; }
+    pickFromPool();
+  });
+  $('reshuffle').addEventListener('click', pickFromPool);
+  $('clearAll').addEventListener('click', () => { clearSources(); state.pool = []; renderSources([]); redraw(); });
 
   // Drag to pan, wheel to zoom
   let drag = null;
@@ -397,6 +491,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
   $('make').addEventListener('click', async () => {
     const btn = $('make'), err = $('err');
     btn.disabled = true; err.hidden = true;
+    if (state.pool.length && $('autoShuffle').checked) { btn.textContent = 'Picking random files…'; await pickFromPool(); }
     const len = +$('len').value, total = Math.round(len * FPS), ms = Math.round(1000 / FPS);
     const list = state.sources.length ? state.sources : [sampleSource];
     const k = list.length;
@@ -413,7 +508,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
     try {
       for (let s = 0; s < k; s++) {
         const src = list[s], n = counts[s];
-        const start = src.isVideo ? randomTime(src.el, n / FPS) : 0;
+        const start = !src.isVideo ? 0 : src.start == null ? randomTime(src.el, n / FPS) : Math.max(0, Math.min(src.start, src.el.duration - n / FPS));
         for (let i = 0; i < n; i++) {
           if (src.isVideo) { await seekTo(src.el, start + i / FPS); draw(src, 1); }
           else if (k === 1) draw(src, 1 + 0.12 * (1 - Math.cos(2 * Math.PI * i / n)) / 2); // zoom in and back out, loops cleanly

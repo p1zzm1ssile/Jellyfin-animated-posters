@@ -4,7 +4,7 @@
 
 Make animated cover art for your Jellyfin libraries.
 
-Add up to 5 videos or pictures, type the library name, and it builds an animated WebP that cuts between random moments from each file, with a rounded white frame and the name in a big serif font. Pictures get a slow zoom. Click **Make** again for a new set of random moments.
+Add up to 5 videos or pictures, or pick a whole folder and let it choose 5 at random. Type the library name and it builds an animated WebP that cuts between moments from each file, with a rounded white frame and the name in a big serif font. Choose the moment for each video yourself, or leave it random. Pictures get a slow zoom.
 
 Everything runs in your browser. Your videos are never uploaded anywhere, not even to the container.
 
@@ -40,10 +40,11 @@ The fonts load from Google Fonts, so the computer you open the page on needs int
 
 ## Make a cover
 
-1. Drop in up to 5 videos (MP4 works best) or pictures.
-2. Pick or type the library name, choose a font, and drag the preview to position the picture.
-3. Set the animation length (2 to 12 seconds, shared between your files).
-4. Click **Make animated cover**, then **Download animated cover**.
+1. Drop in up to 5 videos (MP4 works best) or pictures, or click **Pick a folder** to have 5 chosen at random. **New random files** picks a different 5, and with **New random files each time I click Make** ticked, every cover uses a fresh set.
+2. To choose the moment from a video, click it in the list and drag the **starts at** slider. Tick **Pick a random moment each time** to go back to random.
+3. Pick or type the library name, choose a font, and drag the preview to position the picture.
+4. Set the animation length (2 to 12 seconds, shared between your files).
+5. Click **Make animated cover**, then **Download animated cover**.
 
 Keep the file under about 5 MB so your home screen loads quickly. Shorter animations make smaller files.
 
