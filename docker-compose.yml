@@ -1,0 +1,7 @@
+services:
+  library-cover-maker:
+    image: ghcr.io/p1zzm1ssile/library-cover-maker:latest
+    container_name: library-cover-maker
+    ports:
+      - "8097:80"
+    restart: unless-stopped
