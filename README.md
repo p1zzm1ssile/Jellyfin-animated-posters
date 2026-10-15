@@ -6,7 +6,7 @@ Make animated cover art for your Jellyfin libraries.
 
 Add up to 5 videos or pictures, or pick a whole folder and let it choose 5 at random. Type the library name and it builds an animated WebP that cuts between moments from each file, with a rounded white frame and the name in a big serif font. Choose the moment for each video yourself, or leave it random. Pictures get a slow zoom.
 
-Everything runs in your browser. Your videos are never uploaded anywhere, not even to the container.
+Use files from the computer you're on, or from your media folders on the server. The covers are made in your browser, and nothing is sent anywhere else.
 
 ## Install
 
@@ -22,25 +22,29 @@ services:
     image: ghcr.io/p1zzm1ssile/library-cover-maker:latest
     container_name: library-cover-maker
     ports:
-      - "8097:80"
+      - "8097:8097"
+    volumes:
+      - /path/to/media:/media:ro
     restart: unless-stopped
 ```
 
 ### Docker
 
 ```sh
-docker run -d --name library-cover-maker -p 8097:80 --restart unless-stopped ghcr.io/p1zzm1ssile/library-cover-maker:latest
+docker run -d --name library-cover-maker -p 8097:8097 -v /path/to/media:/media:ro --restart unless-stopped ghcr.io/p1zzm1ssile/library-cover-maker:latest
 ```
 
 Then open `http://<your-server-ip>:8097` in Edge, Chrome or Firefox. Safari can't make WebP images.
 
-Jellyfin uses port 8096, so the default here is 8097. Change it to any free port.
+Jellyfin uses port 8096, so the default here is 8097. To use another port, change the first number (`8097:8097` → `9000:8097`).
+
+Map your media folder to `/media`, read-only. You can map several folders under it, such as `/media/movies` and `/media/tv`. They appear under the **Server media** button. Leave it out if you only want to use files from your computer.
 
 The fonts load from Google Fonts, so the computer you open the page on needs internet access. Without it the text falls back to Georgia.
 
 ## Make a cover
 
-1. Drop in up to 5 videos (MP4 works best) or pictures, or click **Pick a folder** to have 5 chosen at random. **New random files** picks a different 5, and with **New random files each time I click Make** ticked, every cover uses a fresh set.
+1. Drop in up to 5 videos (MP4 works best) or pictures, or click **Pick a folder** to have 5 chosen at random from a folder on your computer. **Server media** browses the folders mapped to `/media`: click a file to add it, or **Use this folder** for 5 random files from that folder and its subfolders. **New random files** picks a different 5, and with **New random files each time I click Make** ticked, every cover uses a fresh set.
 2. To choose the moment from a video, click it in the list and drag the **starts at** slider. Tick **Pick a random moment each time** to go back to random.
 3. Pick or type the library name, choose a font, and drag the preview to position the picture.
 4. Set the animation length (2 to 12 seconds, shared between your files).
@@ -70,7 +74,7 @@ Leave `maxWidth` and `quality` off the image address: if Jellyfin resizes the im
 
 ```sh
 docker build -t library-cover-maker .
-docker run -d -p 8097:80 library-cover-maker
+docker run -d -p 8097:8097 -v /path/to/media:/media:ro library-cover-maker
 ```
 
 Or open `web/index.html` straight in your browser. It works without a server.

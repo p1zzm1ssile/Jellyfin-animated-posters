@@ -3,5 +3,8 @@ services:
     image: ghcr.io/p1zzm1ssile/library-cover-maker:latest
     container_name: library-cover-maker
     ports:
-      - "8097:80"
+      - "8097:8097"
+    volumes:
+      # Your media, read-only. Map as many folders as you like under /media.
+      - /path/to/media:/media:ro
     restart: unless-stopped

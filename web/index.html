@@ -67,6 +67,13 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .btns { display: flex; flex-wrap: wrap; gap: 6px; }
 .ghost { font: inherit; font-size: 13px; font-weight: 600; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
 .ghost:hover { border-color: var(--accent); }
+.browser { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.browser .path { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.browser ul { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; display: grid; gap: 2px; }
+.browser li button { width: 100%; text-align: left; font: inherit; font-size: 13px; padding: 5px 8px; border: 0; border-radius: 4px; background: none; color: var(--fg); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser li button:hover { background: var(--panel); }
+.browser li .dir::before { content: "▸ "; color: var(--accent); }
+.browser .empty { font-size: 13px; color: var(--muted); padding: 4px 8px; }
 .clip { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
 .presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .presets button { font: inherit; font-size: 12.5px; font-weight: 600; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
@@ -127,9 +134,20 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
         <input type="file" id="file" accept="image/*,video/*" multiple hidden>
         <input type="file" id="folder" webkitdirectory multiple hidden>
         <div class="btns">
+          <button type="button" class="ghost" id="browseServer" hidden>Server media</button>
           <button type="button" class="ghost" id="pickFolder">Pick a folder</button>
           <button type="button" class="ghost" id="reshuffle" hidden>New random files</button>
           <button type="button" class="ghost" id="clearAll" hidden>Clear</button>
+        </div>
+        <div class="browser" id="browser" hidden>
+          <div class="path" id="browserPath">/</div>
+          <div class="btns">
+            <button type="button" class="ghost" id="browserUp">Up</button>
+            <button type="button" class="ghost" id="browserUse">Use this folder (random 5)</button>
+            <button type="button" class="ghost" id="browserClose">Close</button>
+          </div>
+          <ul id="browserList"></ul>
+          <p class="hint">Click a folder to open it, or a file to add it.</p>
         </div>
         <label class="check" id="autoWrap" hidden><input id="autoShuffle" type="checkbox" checked> New random files each time I click Make</label>
         <ul class="sources" id="sources"></ul>
@@ -283,8 +301,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
   });
 
   const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-  const isMedia = f => f && (f.type.startsWith('image/') || isVideoFile(f));
-  const isVideoFile = f => f.type.startsWith('video/') || /\.(mkv|mp4|webm|mov|m4v)$/i.test(f.name);
+  const VIDEO_EXT = /\.(mkv|mp4|webm|mov|m4v)$/i, IMAGE_EXT = /\.(jpe?g|png|webp|gif|avif|bmp)$/i;
+  const isVideoFile = f => (f.type || '').startsWith('video/') || VIDEO_EXT.test(f.name);
+  const isMedia = f => !!f && ((f.type || '').startsWith('image/') || IMAGE_EXT.test(f.name || '') || isVideoFile(f));
   const randomTime = (v, len = 0) => Math.random() * Math.max(0, v.duration - len);
 
   function seekTo(v, t) {
@@ -296,22 +315,27 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
     });
   }
 
+  // f is a File from this computer, or { name, url, remote: true } for a file served from the server's media folders.
   function loadOne(f) {
-    const url = URL.createObjectURL(f);
+    const url = f.remote ? f.url : URL.createObjectURL(f);
+    const own = f.remote ? null : url; // only blob: URLs need revoking
     const name = f.name || 'pasted image';
+    const fail = msg => { if (own) URL.revokeObjectURL(own); return { error: `${name}: ${msg}` }; };
     return new Promise(resolve => {
       if (isVideoFile(f)) {
         const v = document.createElement('video');
         v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
+        const timer = setTimeout(() => { v.removeAttribute('src'); v.load(); resolve(fail('took too long to open.')); }, 20000);
         v.addEventListener('loadeddata', async () => {
+          clearTimeout(timer);
           await seekTo(v, randomTime(v));
-          resolve({ el: v, isVideo: true, name, url, start: null });
+          resolve({ el: v, isVideo: true, name, url: own, start: null });
         }, { once: true });
-        v.addEventListener('error', () => { URL.revokeObjectURL(url); resolve({ error: `${name}: your browser can’t play this video. Try an MP4.` }); }, { once: true });
+        v.addEventListener('error', () => { clearTimeout(timer); resolve(fail('your browser can’t play this video. Try an MP4.')); }, { once: true });
       } else {
         const img = new Image();
-        img.onload = () => resolve({ el: img, isVideo: false, name, url });
-        img.onerror = () => { URL.revokeObjectURL(url); resolve({ error: `${name}: not a picture this browser can open.` }); };
+        img.onload = () => resolve({ el: img, isVideo: false, name, url: own });
+        img.onerror = () => resolve(fail('not a picture this browser can open.'));
         img.src = url;
       }
     });
@@ -357,7 +381,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
       ul.appendChild(li);
     });
     const n = state.sources.length;
-    const pool = state.pool.length ? ` Picked at random from ${state.pool.length} files in your folder.` : '';
+    const pool = state.pool.length ? ` Picked at random from ${state.pool.length} files in the folder.` : '';
     const base = n ? `${n} of ${MAX_FILES} files.${pool} Click a video to choose its moment.` : 'No files yet, so the preview shows a sample sunset.';
     $('srcHint').textContent = [base, ...msgs].join(' ');
     drop.hidden = n >= MAX_FILES;
@@ -434,6 +458,75 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
     pickFromPool();
   });
   $('reshuffle').addEventListener('click', pickFromPool);
+
+  // ---- Server media (folders mapped to /media in the container) ----
+  const MEDIA = 'media/';
+  const browser = { path: [] };
+  const mediaUrl = (parts, name) => MEDIA + [...parts, name].filter(Boolean).map(encodeURIComponent).join('/') + (name ? '' : (parts.length ? '/' : ''));
+  async function listDir(parts) {
+    const r = await fetch(mediaUrl(parts), { headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error(r.status);
+    const items = await r.json();
+    return items.filter(i => !i.name.startsWith('.') && !i.name.startsWith('@'));
+  }
+  const remoteFile = (parts, name) => ({ name, url: mediaUrl(parts, name), remote: true });
+
+  async function showDir(parts) {
+    browser.path = parts;
+    $('browserPath').textContent = '/' + parts.join('/');
+    $('browserUp').disabled = !parts.length;
+    const ul = $('browserList');
+    ul.innerHTML = '<li class="empty">Loading…</li>';
+    let items;
+    try { items = await listDir(parts); }
+    catch { ul.innerHTML = '<li class="empty">Couldn’t open this folder.</li>'; return; }
+    const dirs = items.filter(i => i.type === 'directory');
+    const files = items.filter(i => i.type === 'file' && isMedia({ name: i.name }));
+    ul.innerHTML = '';
+    if (!dirs.length && !files.length) ul.innerHTML = '<li class="empty">No folders, videos or pictures here.</li>';
+    const sort = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+    for (const d of dirs.sort(sort)) {
+      const li = document.createElement('li'), b = document.createElement('button');
+      b.type = 'button'; b.className = 'dir'; b.textContent = d.name;
+      b.addEventListener('click', () => showDir([...parts, d.name]));
+      li.appendChild(b); ul.appendChild(li);
+    }
+    for (const f of files.sort(sort)) {
+      const li = document.createElement('li'), b = document.createElement('button');
+      b.type = 'button'; b.textContent = f.name;
+      b.addEventListener('click', () => addFiles([remoteFile(parts, f.name)]));
+      li.appendChild(b); ul.appendChild(li);
+    }
+  }
+
+  // Walk the folder and its subfolders for videos and pictures, with limits so a huge library stays quick.
+  async function gatherRemote(start) {
+    const found = [], queue = [start];
+    let dirsRead = 0;
+    while (queue.length && dirsRead < 500 && found.length < 5000) {
+      const batch = queue.splice(0, 8);
+      dirsRead += batch.length;
+      $('srcHint').textContent = `Looking through your folders… ${found.length} files found`;
+      const results = await Promise.all(batch.map(p => listDir(p).then(items => [p, items]).catch(() => [p, []])));
+      for (const [p, items] of results) for (const i of items) {
+        if (i.type === 'directory') queue.push([...p, i.name]);
+        else if (i.type === 'file' && isMedia({ name: i.name })) found.push(remoteFile(p, i.name));
+      }
+    }
+    return found;
+  }
+
+  $('browseServer').addEventListener('click', () => { $('browser').hidden = false; showDir(browser.path); });
+  $('browserClose').addEventListener('click', () => { $('browser').hidden = true; });
+  $('browserUp').addEventListener('click', () => showDir(browser.path.slice(0, -1)));
+  $('browserUse').addEventListener('click', async () => {
+    state.pool = await gatherRemote(browser.path);
+    if (!state.pool.length) { renderSources(['That folder has no videos or pictures in it.']); return; }
+    $('browser').hidden = true;
+    pickFromPool();
+  });
+  // Only show the button when the page is served by the container with media mapped.
+  listDir([]).then(() => { $('browseServer').hidden = false; }).catch(() => {});
   $('clearAll').addEventListener('click', () => { clearSources(); state.pool = []; renderSources([]); redraw(); });
 
   // Drag to pan, wheel to zoom
