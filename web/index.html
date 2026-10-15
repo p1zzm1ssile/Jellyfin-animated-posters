@@ -359,9 +359,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
     redraw();
   }
 
+  // Stop a video downloading before dropping it. A dropped <video> keeps its connection to the
+  // server open, and the browser only allows a few per server, so after a folder switch or two
+  // nothing else (new videos, folder listings) could load and the page froze.
+  function releaseSource(s) {
+    if (s.isVideo) { s.el.pause(); s.el.removeAttribute('src'); s.el.load(); }
+    if (s.url) URL.revokeObjectURL(s.url);
+  }
+
   function removeSource(i) {
     const [s] = state.sources.splice(i, 1);
-    if (s?.url) URL.revokeObjectURL(s.url);
+    if (s) releaseSource(s);
     state.active = Math.min(state.active, Math.max(0, state.sources.length - 1));
     renderSources([]);
     redraw();
@@ -401,7 +409,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
   }
 
   function clearSources() {
-    state.sources.forEach(s => s.url && URL.revokeObjectURL(s.url));
+    state.sources.forEach(releaseSource);
     state.sources = []; state.active = 0;
   }
 
@@ -447,7 +455,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
   // ---- Folder: pick random files ----
   const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const poolFiles = () => $('videosOnly').checked ? state.pool.filter(isVideoFile) : state.pool;
+  let pickRun = 0; // a newer pick (another folder, or New random files) replaces one still loading
   async function pickFromPool() {
+    const run = ++pickRun;
     clearSources();
     const msgs = [];
     const order = shuffle(poolFiles());
@@ -457,6 +467,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
       if (state.sources.length >= MAX_FILES || tried >= MAX_FILES * 4) break;
       tried++;
       const s = await loadOne(f);
+      if (run !== pickRun) { if (!s.error) releaseSource(s); return; }
       if (s.error) state.pool = state.pool.filter(x => x !== f); // skip files this browser can't open
       else state.sources.push(s);
     }
@@ -598,8 +609,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
   }
 
   $('make').addEventListener('click', async () => {
-    const btn = $('make'), err = $('err');
+    const btn = $('make'), err = $('err'), rail = document.querySelector('.rail');
     btn.disabled = true; err.hidden = true;
+    rail.inert = true; // the files can't be swapped out while their frames are being made
     if (state.pool.length && $('autoShuffle').checked) { btn.textContent = 'Picking random files…'; await pickFromPool(); }
     const len = +$('len').value, total = Math.round(len * FPS), ms = Math.round(1000 / FPS);
     const list = state.sources.length ? state.sources : [sampleSource];
@@ -658,7 +670,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
         : 'Something went wrong making the animation: ' + e.message;
       err.hidden = false;
     } finally {
-      btn.disabled = false; btn.textContent = 'Make animated cover';
+      btn.disabled = false; btn.textContent = 'Make animated cover'; rail.inert = false;
       redraw();
     }
   });
