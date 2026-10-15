@@ -57,8 +57,15 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .drop.over { border-color: var(--accent); color: var(--fg); }
 .drop strong { color: var(--accent); }
 .sources { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.sources li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 13px; cursor: pointer; }
+.sources li { display: grid; gap: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 13px; cursor: pointer; }
 .sources li.active { border-color: var(--accent); }
+.sources .top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sources .moment { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; align-items: center; }
+.sources .moment canvas { width: 72px; height: 40px; aspect-ratio: auto; border-radius: 3px; cursor: pointer; }
+.sources .moment .ctl { display: grid; gap: 2px; min-width: 0; }
+.sources .moment .meta { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sources .moment .rnd { font-size: 11.5px; font-weight: 700; color: var(--accent); padding: 2px 6px; border: 1px solid var(--line); border-radius: 999px; }
+.sources .moment .rnd[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .sources .n { font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
 .sources .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sources .kind { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
@@ -98,13 +105,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
   <div class="bench">
     <section class="stage">
       <canvas id="cv" width="960" height="540" aria-label="Cover preview"></canvas>
-      <p class="hint">Drag to move the picture. Scroll or use the Zoom slider to resize it. Click a file in the list to preview it.</p>
+      <p class="hint">Drag to move the picture. Scroll or use the Zoom slider to resize it. Click a file in the list to preview it. Each video has its own slider for choosing the moment.</p>
 
-      <div class="clip" id="clipGroup" hidden>
-        <label for="clipStart">Clip from <span id="clipName"></span> starts at</label>
-        <div class="row"><input id="clipStart" type="range" min="0" max="1000" value="0"><output id="clipOut">random</output></div>
-        <label class="check"><input id="clipRandom" type="checkbox" checked> Pick a random moment each time</label>
-      </div>
 
       <div class="result">
         <div class="group">
@@ -149,6 +151,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
           <ul id="browserList"></ul>
           <p class="hint">Click a folder to open it, or a file to add it.</p>
         </div>
+        <label class="check"><input id="videosOnly" type="checkbox" checked> Videos only when picking from a folder</label>
         <label class="check" id="autoWrap" hidden><input id="autoShuffle" type="checkbox" checked> New random files each time I click Make</label>
         <ul class="sources" id="sources"></ul>
         <p class="hint" id="srcHint">No files yet, so the preview shows a sample sunset.</p>
@@ -371,23 +374,24 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
       const li = document.createElement('li');
       li.tabIndex = 0;
       if (i === state.active) li.classList.add('active');
-      li.innerHTML = `<span class="n">${i + 1}</span><span class="name"></span><span class="kind">${s.isVideo ? (s.start == null ? 'random' : fmt(s.start)) : 'picture'}</span><button type="button" aria-label="Remove">×</button>`;
+      li.innerHTML = `<div class="top"><span class="n">${i + 1}</span><span class="name"></span><span class="kind">${s.isVideo ? 'video' : 'picture'}</span><button type="button" class="rm" aria-label="Remove">×</button></div>`;
       li.querySelector('.name').textContent = s.name;
+      if (s.isVideo && s.el.duration) li.appendChild(momentRow(s, i));
       li.addEventListener('click', e => {
-        if (e.target.tagName === 'BUTTON') { removeSource(i); return; }
+        if (e.target.closest('.rm')) { removeSource(i); return; }
+        if (e.target.closest('.moment')) return;
         selectSource(i);
       });
-      li.addEventListener('keydown', e => { if (e.key === 'Enter') selectSource(i); });
+      li.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target === li) selectSource(i); });
       ul.appendChild(li);
     });
     const n = state.sources.length;
-    const pool = state.pool.length ? ` Picked at random from ${state.pool.length} files in the folder.` : '';
-    const base = n ? `${n} of ${MAX_FILES} files.${pool} Click a video to choose its moment.` : 'No files yet, so the preview shows a sample sunset.';
+    const pool = state.pool.length ? ` Picked at random from ${poolFiles().length} ${$('videosOnly').checked ? 'videos' : 'files'} in the folder.` : '';
+    const base = n ? `${n} of ${MAX_FILES} files.${pool} Drag a video’s slider to choose its moment.` : 'No files yet, so the preview shows a sample sunset.';
     $('srcHint').textContent = [base, ...msgs].join(' ');
     drop.hidden = n >= MAX_FILES;
     $('reshuffle').hidden = $('autoWrap').hidden = !state.pool.length;
     $('clearAll').hidden = !n;
-    updateClipUI();
   }
 
   function selectSource(i) {
@@ -401,41 +405,52 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
     state.sources = []; state.active = 0;
   }
 
-  // ---- Per-file clip start ----
-  function updateClipUI() {
-    const s = state.sources[state.active];
-    const show = !!(s && s.isVideo && s.el.duration);
-    $('clipGroup').hidden = !show;
-    if (!show) return;
-    $('clipName').textContent = s.name;
-    const t = s.start ?? s.el.currentTime;
-    $('clipStart').value = Math.round(1000 * t / s.el.duration);
-    $('clipOut').textContent = s.start == null ? 'random' : fmt(s.start);
-    $('clipRandom').checked = s.start == null;
+  // ---- Per-file moment picker (one per video row) ----
+  function momentRow(s, i) {
+    const row = document.createElement('div');
+    row.className = 'moment';
+    row.innerHTML = `<canvas width="144" height="80" title="Show in preview"></canvas>
+      <div class="ctl">
+        <input type="range" min="0" max="1000" aria-label="Moment to use from ${s.name.replace(/"/g, '')}">
+        <div class="meta"><span class="t"></span><button type="button" class="rnd" aria-pressed="false">Random</button></div>
+      </div>`;
+    const thumb = row.querySelector('canvas'), range = row.querySelector('input'), t = row.querySelector('.t'), rnd = row.querySelector('.rnd');
+    const paintThumb = () => thumb.getContext('2d').drawImage(s.el, 0, 0, thumb.width, thumb.height);
+    const sync = () => {
+      const at = s.start ?? s.el.currentTime;
+      range.value = Math.round(1000 * at / s.el.duration);
+      t.textContent = s.start == null ? 'Random moment' : `${fmt(s.start)} of ${fmt(s.el.duration)}`;
+      rnd.setAttribute('aria-pressed', String(s.start == null));
+    };
+    let busy = false, want = null;
+    const seekLatest = async () => { // keep up with fast dragging: only seek to the newest position
+      if (busy) return; busy = true;
+      while (want != null) { const go = want; want = null; await seekTo(s.el, go); paintThumb(); if (state.active === i) redraw(); }
+      busy = false;
+    };
+    range.addEventListener('input', () => {
+      s.start = s.el.duration * range.value / 1000;
+      $('autoShuffle').checked = false; // keep the moments you picked
+      if (state.active !== i) { state.active = i; document.querySelectorAll('#sources li').forEach((li, k) => li.classList.toggle('active', k === i)); }
+      sync(); want = s.start; seekLatest();
+    });
+    rnd.addEventListener('click', async () => {
+      if (s.start == null) { s.start = s.el.currentTime; }
+      else { s.start = null; await seekTo(s.el, randomTime(s.el)); paintThumb(); if (state.active === i) redraw(); }
+      sync();
+    });
+    thumb.addEventListener('click', () => selectSource(i));
+    sync(); paintThumb();
+    return row;
   }
-  $('clipStart').addEventListener('input', async () => {
-    const s = state.sources[state.active]; if (!s?.isVideo) return;
-    s.start = s.el.duration * $('clipStart').value / 1000;
-    $('autoShuffle').checked = false; // keep the moments you picked
-    $('clipOut').textContent = fmt(s.start);
-    $('clipRandom').checked = false;
-    renderSources([]);
-    await seekTo(s.el, s.start);
-    redraw();
-  });
-  $('clipRandom').addEventListener('change', () => {
-    const s = state.sources[state.active]; if (!s?.isVideo) return;
-    s.start = $('clipRandom').checked ? null : s.el.currentTime;
-    if (!$('clipRandom').checked) $('autoShuffle').checked = false;
-    renderSources([]);
-  });
 
   // ---- Folder: pick random files ----
   const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const poolFiles = () => $('videosOnly').checked ? state.pool.filter(isVideoFile) : state.pool;
   async function pickFromPool() {
     clearSources();
     const msgs = [];
-    const order = shuffle([...state.pool]);
+    const order = shuffle(poolFiles());
     $('srcHint').textContent = 'Picking random files…';
     let tried = 0;
     for (const f of order) {
@@ -445,7 +460,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
       if (s.error) state.pool = state.pool.filter(x => x !== f); // skip files this browser can't open
       else state.sources.push(s);
     }
-    if (!state.sources.length) msgs.push('None of the files in that folder could be opened. MP4 videos and JPG or PNG pictures work best.');
+    if (!poolFiles().length) msgs.push($('videosOnly').checked ? 'That folder has no videos. Untick Videos only to use its pictures.' : 'That folder has no videos or pictures in it.');
+    else if (!state.sources.length) msgs.push('None of the files in that folder could be opened. MP4 videos work best.');
     state.active = 0;
     renderSources(msgs);
     redraw();

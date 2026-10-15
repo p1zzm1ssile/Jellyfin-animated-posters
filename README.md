@@ -45,7 +45,8 @@ The fonts load from Google Fonts, so the computer you open the page on needs int
 ## Make a cover
 
 1. Drop in up to 5 videos (MP4 works best) or pictures, or click **Pick a folder** to have 5 chosen at random from a folder on your computer. **Server media** browses the folders mapped to `/media`: click a file to add it, or **Use this folder** for 5 random files from that folder and its subfolders. **New random files** picks a different 5, and with **New random files each time I click Make** ticked, every cover uses a fresh set.
-2. To choose the moment from a video, click it in the list and drag the **starts at** slider. Tick **Pick a random moment each time** to go back to random.
+   **Videos only when picking from a folder** is ticked by default, so posters and other pictures in your media folders are skipped.
+2. Each video in the list has its own slider and a small preview of the frame. Drag the slider to choose the moment that video's clip starts at. Click **Random** to go back to a random moment.
 3. Pick or type the library name, choose a font, and drag the preview to position the picture.
 4. Set the animation length (2 to 12 seconds, shared between your files).
 5. Click **Make animated cover**, then **Download animated cover**.
