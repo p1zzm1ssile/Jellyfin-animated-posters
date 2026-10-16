@@ -27,4 +27,9 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The tests call the store's internal members (CoverStore.Save) directly. -->
+    <InternalsVisibleTo Include="LibraryCoverMaker.Tests" />
+  </ItemGroup>
+
 </Project>
