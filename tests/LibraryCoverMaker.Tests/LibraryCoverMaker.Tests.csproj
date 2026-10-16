@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <!-- Everything builds without warnings; this keeps it that way. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <!-- The plugin compiles against Jellyfin without copying its DLLs; the tests need them to run. -->
+    <PackageReference Include="Jellyfin.Controller" Version="12.0.0" />
+    <PackageReference Include="Jellyfin.Model" Version="12.0.0" />
+    <!-- Jellyfin supplies SkiaSharp at run time; the tests need their own copy of the managed
+         assembly and of the Linux native library, at the version the plugin compiles against.
+         The native library is the Fontconfig build that Jellyfin itself ships: the NoDependencies
+         build has no Fontconfig, so SKFontManager.MatchCharacter finds no fallback font in it.
+         The Windows and macOS libraries that SkiaSharp depends on are left out (about 290 MB). -->
+    <PackageReference Include="SkiaSharp" Version="3.119.4" ExcludeAssets="native" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../Jellyfin.Plugin.LibraryCoverMaker/Jellyfin.Plugin.LibraryCoverMaker.csproj" />
+  </ItemGroup>
+
+</Project>
