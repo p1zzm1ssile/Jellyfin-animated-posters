@@ -135,6 +135,53 @@ public sealed class CoverRendererTests
     }
 
     [Fact]
+    public void A_cropped_video_slot_crops_first_in_the_exact_graph()
+    {
+        var crop = new CropRect(0, 90, 1280, 540);
+        var args = CoverRenderer.BuildArguments(
+            Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/letterbox.mkv") with { Crop = crop } }));
+
+        // The crop is in the pixels of the file, so it comes before the frame rate and the size change.
+        Assert.Equal(
+            string.Join(
+                ';',
+                "[0:v]trim=end_frame=1,scale=1280:720:force_original_aspect_ratio=increase:reset_sar=1,crop=1280:720,zoompan=z='1+0.12*on/18':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=18:s=640x360:fps=12,setsar=1,format=yuv420p[s0]",
+                "[1:v]crop=1280:540:0:90,fps=12,scale=640:360:force_original_aspect_ratio=increase:reset_sar=1,crop=640:360,setsar=1,format=yuv420p,tpad=stop_mode=clone:stop=18,trim=end_frame=18[s1]",
+                "[s0][s1]xfade=transition=fade:duration=0.333:offset=1.167[x1]",
+                "[x1][2:v]overlay=shortest=1:format=auto,format=yuv420p,split=2[anim][st]"),
+            Graph(args));
+    }
+
+    [Fact]
+    public void A_crop_comes_before_the_tone_mapping_of_an_hdr_slot()
+    {
+        var args = CoverRenderer.BuildArguments(
+            Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/hdr.mkv", hdr: true) with { Crop = new CropRect(160, 0, 960, 720) } }));
+
+        Assert.StartsWith("[1:v]crop=960:720:160:0,tonemapx=tonemap=bt2390:", Chain(args, input: 1));
+    }
+
+    [Fact]
+    public void A_slot_without_a_crop_adds_no_crop_before_the_scale()
+    {
+        var args = CoverRenderer.BuildArguments(Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/clean.mkv") }));
+
+        Assert.StartsWith("[1:v]fps=12,", Chain(args, input: 1));
+    }
+
+    [Theory]
+    [InlineData(0, 0, 0, 540)]
+    [InlineData(0, 0, 1280, -2)]
+    [InlineData(-2, 0, 1280, 540)]
+    [InlineData(0, -2, 1280, 540)]
+    public void A_crop_that_is_not_a_picture_is_refused(int x, int y, int width, int height)
+    {
+        var plan = Plan(new[] { Video("/media/b/letterbox.mkv") with { Crop = new CropRect(x, y, width, height) } });
+
+        Assert.Throws<ArgumentException>(() => CoverRenderer.BuildArguments(plan));
+    }
+
+    [Fact]
     public void No_fade_uses_concat()
     {
         var args = CoverRenderer.BuildArguments(
