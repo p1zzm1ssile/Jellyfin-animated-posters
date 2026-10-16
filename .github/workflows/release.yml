@@ -1,0 +1,255 @@
+name: Release
+
+# Push a version tag to check, test, build and release the plugin:
+#   v1.0.0  ->  checks the tag, runs the tests, builds Library Cover Maker 1.0.0.0, creates the GitHub
+#               release and adds the version to manifest.json
+#
+# Before tagging, raise <Version> in the project file to 1.0.0.0, give CHANGELOG.md a "## [1.0.0]"
+# section, and merge both. Then tag the merged commit.
+on:
+  push:
+    tags:
+      - 'v*'
+
+# The jobs only read the code. The release job below is the one that may write.
+permissions:
+  contents: read
+
+# What the plugin catalogue shows, written to manifest.json by scripts/update_manifest.py.
+# Every name here starts with PLUGIN_ on purpose: MSBuild reads environment variables as properties,
+# so a plain DESCRIPTION would end up in the DLL as its assembly description.
+env:
+  PLUGIN_PROJECT: 'Jellyfin.Plugin.LibraryCoverMaker/Jellyfin.Plugin.LibraryCoverMaker.csproj'
+  PLUGIN_DLL: 'Jellyfin.Plugin.LibraryCoverMaker.dll'
+  PLUGIN_FONTS_DIR: 'Jellyfin.Plugin.LibraryCoverMaker/Rendering/Fonts'
+  PLUGIN_GUID: 'ba3b88b5-029c-4a6f-90b3-734af8385652'
+  PLUGIN_NAME: 'Library Cover Maker'
+  PLUGIN_OWNER: 'p1zzm1ssile'
+  PLUGIN_CATEGORY: 'General'
+  PLUGIN_TARGET_ABI: '12.0.0.0'   # built against Jellyfin 12.0.0
+  PLUGIN_DESCRIPTION: 'Keeps an animated cover on every library, rendered on the server and renewed on a schedule.'
+  PLUGIN_OVERVIEW: 'Animated covers for your libraries, made on the server and renewed every week.'
+  PLUGIN_IMAGE: 'https://raw.githubusercontent.com/p1zzm1ssile/Library-Cover-Maker/main/Jellyfin.Plugin.LibraryCoverMaker/logo.png'
+
+# The jobs run on Ubuntu 24.04, not ubuntu-latest, like tests.yml (see the note there).
+jobs:
+  # Fast, so a wrong tag fails here in seconds and the tests never start for it.
+  check:
+    name: Check the tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      version4: ${{ steps.meta.outputs.version4 }}
+      zip: ${{ steps.meta.outputs.zip }}
+      notes: ${{ steps.meta.outputs.notes }}
+    steps:
+      - name: Check out the tagged code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check the tag and read the changelog
+        id: meta
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Three numbers without leading zeros: the version ends up in file names, commands and the manifest.
+          if ! [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Tag must look like v1.2.3, with no leading zeros (got $GITHUB_REF_NAME)"
+            exit 1
+          fi
+          # The tag must sit on the code for that version: tagging before merging would otherwise
+          # publish the previous version's code under the new number. The fourth part is always 0.
+          python3 - "$PLUGIN_PROJECT" "$VERSION.0" <<'PY'
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+
+          project, want = sys.argv[1:3]
+          tag = os.environ["GITHUB_REF_NAME"]
+          # The <Version> of the project's own PropertyGroup. Reading the XML instead of searching the
+          # text keeps a <Version> in a comment or in a package reference from being taken for it.
+          root = ET.parse(project).getroot()
+          found = [e.text.strip() for group in root.findall("PropertyGroup") for e in group.findall("Version") if e.text]
+          if len(found) != 1:
+              print(f"::error::{project} must have exactly one <Version> in a PropertyGroup, but has {len(found)}.")
+              sys.exit(1)
+          if found[0] != want:
+              print(f"::error::Tag {tag} needs <Version>{want}</Version> in {project}, but this commit has {found[0]}. Merge the release first, then tag the merged commit (delete this tag with: git push origin :refs/tags/{tag}).")
+              sys.exit(1)
+          PY
+          # And it must be on main: a branch that already has the new version but isn't merged would pass the check above.
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME is on a commit that isn't on main. Merge first, then tag the merged commit."
+            exit 1
+          fi
+          # The release notes and the manifest's changelog are this version's section of CHANGELOG.md.
+          python3 - CHANGELOG.md "$VERSION" CHANGES.md <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          path, version, out = sys.argv[1:4]
+          text = pathlib.Path(path).read_text(encoding="utf-8")
+          # From the "## [1.0.0]" heading up to the next "## [" heading.
+          match = re.search(r"^## \[" + re.escape(version) + r"\][^\n]*\n(.*?)(?=^## \[|\Z)", text, re.S | re.M)
+          section = match.group(1).strip() if match else ""
+          if not section:
+              print(f"::error::{path} has no section for {version}. Add it, merge, then tag.")
+              sys.exit(1)
+          pathlib.Path(out).write_text(section + "\n", encoding="utf-8")
+          PY
+          # The notes have several lines, so they leave this job as a multi-line output, closed by a
+          # delimiter that cannot be in the changelog.
+          delimiter="NOTES_$(openssl rand -hex 16)"
+          {
+            echo "version=$VERSION"
+            echo "version4=$VERSION.0"
+            echo "zip=LibraryCoverMaker-v$VERSION.zip"
+            echo "notes<<$delimiter"
+            cat CHANGES.md
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+  # Unit and end-to-end tests: nothing is released or added to the manifest unless they pass.
+  tests:
+    needs: check
+    uses: ./.github/workflows/tests.yml
+
+  release:
+    name: Build and release
+    needs: [check, tests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write   # creates the GitHub release and pushes manifest.json to main
+    # Every run waits for its turn, so two manifest.json pushes never race. A group keeps only one
+    # waiting run by default and a newer run cancels it, which would lose a release pushed behind
+    # two others; "queue: max" keeps every waiting run in line.
+    concurrency:
+      group: manifest-update
+      cancel-in-progress: false
+      queue: max
+    steps:
+      # The checkout does not keep the token. The build runs project and package code, and none of it
+      # needs to push; the last step hands the token to git itself.
+      - name: Check out the tagged code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The check job read this version's section of CHANGELOG.md.
+      - name: Write the release notes
+        shell: bash
+        env:
+          NOTES: ${{ needs.check.outputs.notes }}
+        run: |
+          if [ -z "$NOTES" ]; then
+            echo "::error::The check job passed on no release notes, so the release would have none."
+            exit 1
+          fi
+          printf '%s\n' "$NOTES" > CHANGES.md
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        shell: bash
+        env:
+          PLUGIN_VERSION: ${{ needs.check.outputs.version4 }}
+        run: |
+          dotnet publish "$PLUGIN_PROJECT" -c Release -o out \
+            -p:Version="$PLUGIN_VERSION" \
+            -p:AssemblyVersion="$PLUGIN_VERSION" \
+            -p:FileVersion="$PLUGIN_VERSION"
+
+      # The zip holds the plugin's own DLL and the license texts of the bundled fonts, which the SIL
+      # Open Font License wants shipped with the fonts. Jellyfin already has its own copy of every
+      # library the plugin uses, and a second copy in the plugin folder can break the plugin, so
+      # nothing else goes in.
+      - name: Package
+        id: package
+        shell: bash
+        env:
+          # Not called ZIP: zip reads that variable as extra command line options.
+          ZIP_FILE: ${{ needs.check.outputs.zip }}
+        run: |
+          if [ ! -f "out/$PLUGIN_DLL" ]; then
+            echo "::error::The build did not produce out/$PLUGIN_DLL."
+            exit 1
+          fi
+          shopt -s nullglob
+          licenses=("$PLUGIN_FONTS_DIR"/OFL-*.txt)
+          if [ ${#licenses[@]} -eq 0 ]; then
+            echo "::error::No OFL-*.txt font licenses in $PLUGIN_FONTS_DIR. They ship in the zip, so the release can't go out without them."
+            exit 1
+          fi
+          zip -j "$ZIP_FILE" "out/$PLUGIN_DLL" "${licenses[@]}"
+          unzip -Z1 "$ZIP_FILE"
+          echo "md5=$(md5sum "$ZIP_FILE" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Create the GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ needs.check.outputs.version }}
+          ZIP_FILE: ${{ needs.check.outputs.zip }}
+          MD5: ${{ steps.package.outputs.md5 }}
+        run: |
+          { cat CHANGES.md; echo; echo "MD5 checksum: \`$MD5\`"; } > RELEASE_NOTES.md
+          # The release may already exist if it was made on GitHub's Releases page (which creates the
+          # tag): then add the zip to it and fill in its title and notes instead.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$ZIP_FILE" --clobber
+            gh release edit "$GITHUB_REF_NAME" --title "$PLUGIN_NAME $RELEASE_VERSION" --notes-file RELEASE_NOTES.md
+          else
+            gh release create "$GITHUB_REF_NAME" "$ZIP_FILE" --verify-tag --title "$PLUGIN_NAME $RELEASE_VERSION" --notes-file RELEASE_NOTES.md
+          fi
+
+      - name: Add this version to manifest.json on main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLUGIN_VERSION: ${{ needs.check.outputs.version4 }}
+          ZIP_FILE: ${{ needs.check.outputs.zip }}
+          MD5: ${{ steps.package.outputs.md5 }}
+        run: |
+          # Only now does git get the token: nothing runs after this step.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main
+          python3 scripts/update_manifest.py \
+            --guid "$PLUGIN_GUID" \
+            --name "$PLUGIN_NAME" \
+            --version "$PLUGIN_VERSION" \
+            --abi "$PLUGIN_TARGET_ABI" \
+            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${ZIP_FILE}" \
+            --checksum "$MD5" \
+            --changelog-file CHANGES.md \
+            --owner "$PLUGIN_OWNER" \
+            --category "$PLUGIN_CATEGORY" \
+            --description "$PLUGIN_DESCRIPTION" \
+            --overview "$PLUGIN_OVERVIEW" \
+            --image-url "$PLUGIN_IMAGE"
+          git add manifest.json
+          git commit -m "Add $PLUGIN_NAME $PLUGIN_VERSION to manifest.json"
+          # Fail if no push gets through, instead of ending green on the last pull's status.
+          for attempt in 1 2 3; do
+            if git push origin main; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              git pull --rebase origin main
+            fi
+          done
+          echo "::error::Couldn't push manifest.json to main after 3 tries, so this release isn't in the manifest yet. Re-run this job to try again: it is safe, as the release's zip is replaced and this version's manifest entry is overwritten."
+          exit 1

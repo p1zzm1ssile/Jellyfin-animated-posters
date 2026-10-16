@@ -1,0 +1,85 @@
+name: Tests
+
+# Unit tests, and the end-to-end tests that build the plugin, run it in a real Jellyfin 12 and check
+# the covers it makes and its page. On pull requests, by hand, and before every release (the release
+# workflow calls this one and only publishes when it passes).
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+# It only reads the code.
+permissions:
+  contents: read
+
+# Both jobs run on Ubuntu 24.04, not ubuntu-latest: that label moves to a newer release on its own,
+# and Playwright 1.56.1 supports Ubuntu 20.04 to 24.04, not newer ones. The fonts and the ffmpeg the
+# tests use come from the OS too.
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      # The cover title tests draw with SkiaSharp's Fontconfig build, which finds fonts through the
+      # system, and some titles are Cyrillic, Hebrew or Arabic. DejaVu covers all three; Noto adds more.
+      - name: Install Fontconfig and fonts
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libfontconfig1 fonts-dejavu-core fonts-noto-core
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          # Every test project under tests/, so a new one is picked up without changing this file.
+          shopt -s nullglob
+          projects=(tests/*/*.Tests.csproj)
+          if [ ${#projects[@]} -eq 0 ]; then
+            echo "::error::No unit test projects found under tests/."
+            exit 1
+          fi
+          for project in "${projects[@]}"; do
+            dotnet test "$project" -c Release
+          done
+
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Install ffmpeg and Playwright
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          npm install --no-save --prefix "$RUNNER_TEMP/pw" playwright@1.56.1
+          npx --prefix "$RUNNER_TEMP/pw" playwright install --with-deps chromium
+
+      # The end-to-end tests will check WebP files with libwebp's webpinfo in this Alpine image,
+      # installing libwebp-tools inside the container. That check is still to be added; pulling the
+      # image here already gives a registry problem a step of its own.
+      - name: Pull the Alpine image for webpinfo
+        run: docker pull --quiet alpine:3.22
+
+      - name: Run tests
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/pw/node_modules/playwright
+        run: bash tests/e2e/run.sh
