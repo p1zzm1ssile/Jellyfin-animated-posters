@@ -18,7 +18,24 @@ public enum SlotKind
 /// <param name="StartSeconds">For a video slot, where in the file the clip starts. Not used for a picture.</param>
 /// <param name="DurationSeconds">How long the slot lasts, fades included. <see cref="CoverRenderer.SlotSeconds"/> gives the value that makes the whole cover last its length.</param>
 /// <param name="IsHdr">For a video slot, whether the video is HDR and must be tone mapped to SDR. Not used for a picture.</param>
-public sealed record SlotInput(SlotKind Kind, string Path, double StartSeconds, double DurationSeconds, bool IsHdr);
+/// <param name="Crop">
+/// For a video slot, the part of the picture to keep, in the pixels of the file, when it has black bars burned in
+/// (<see cref="Sources.SceneFinder"/> finds it). Null keeps the whole picture. Not used for a picture.
+/// </param>
+public sealed record SlotInput(
+    SlotKind Kind,
+    string Path,
+    double StartSeconds,
+    double DurationSeconds,
+    bool IsHdr,
+    CropRect? Crop = null);
+
+/// <summary>A rectangle of a video picture, in pixels counted from its top left corner.</summary>
+/// <param name="X">Distance of the rectangle from the left edge.</param>
+/// <param name="Y">Distance of the rectangle from the top edge.</param>
+/// <param name="Width">Width of the rectangle.</param>
+/// <param name="Height">Height of the rectangle.</param>
+public readonly record struct CropRect(int X, int Y, int Width, int Height);
 
 /// <summary>Everything the renderer needs to make one cover: the slots, the overlay laid over them and where the result goes.</summary>
 /// <param name="Slots">The slots, in order. At least one.</param>

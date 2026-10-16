@@ -203,7 +203,7 @@ public static class CoverRenderer
             var slot = plan.Slots[i];
             var chain = slot.Kind == SlotKind.Image
                 ? ImageChain(frames[i], plan.Width, plan.Height, plan.Fps)
-                : VideoChain(slot.IsHdr, frames[i], plan.Width, plan.Height, plan.Fps);
+                : VideoChain(slot.IsHdr, slot.Crop, frames[i], plan.Width, plan.Height, plan.Fps);
             chains.Add(Inv($"[{i}:v]{chain}[s{i}]"));
         }
 
@@ -256,10 +256,17 @@ public static class CoverRenderer
             "setsar=1",
             "format=yuv420p");
 
-    // The clip's own frames, tone mapped first when it is HDR, then pinned to exactly its frame count.
-    private static string VideoChain(bool hdr, int frames, int width, int height, int fps)
+    // The clip's own frames, cut to the picture inside its burned-in bars when it has any (the crop is in the pixels
+    // of the file and works on any pixel format, so it comes first), tone mapped when it is HDR, then pinned to
+    // exactly its frame count.
+    private static string VideoChain(bool hdr, CropRect? crop, int frames, int width, int height, int fps)
     {
         var filters = new List<string>();
+        if (crop is { } rect)
+        {
+            filters.Add(Inv($"crop={rect.Width}:{rect.Height}:{rect.X}:{rect.Y}"));
+        }
+
         if (hdr)
         {
             filters.Add(ToneMap);
@@ -326,6 +333,14 @@ public static class CoverRenderer
             if (slot.Kind == SlotKind.Video && (!double.IsFinite(slot.StartSeconds) || slot.StartSeconds < 0))
             {
                 throw new ArgumentException($"The clip of slot {i} must start at 0 seconds or later, not {slot.StartSeconds}.", nameof(plan));
+            }
+
+            if (slot.Kind == SlotKind.Video && slot.Crop is { } crop
+                && (crop.Width <= 0 || crop.Height <= 0 || crop.X < 0 || crop.Y < 0))
+            {
+                throw new ArgumentException(
+                    $"The crop of slot {i} must have a positive size and a non-negative offset, not {crop}.",
+                    nameof(plan));
             }
 
             seconds += slot.DurationSeconds;
