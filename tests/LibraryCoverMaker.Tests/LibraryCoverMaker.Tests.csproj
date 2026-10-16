@@ -23,6 +23,11 @@
          The Windows and macOS libraries that SkiaSharp depends on are left out (about 290 MB). -->
     <PackageReference Include="SkiaSharp" Version="3.119.4" ExcludeAssets="native" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4" />
+    <!-- The same for HarfBuzz, which shapes the titles: Jellyfin ships SkiaSharp.HarfBuzz 3.119.4,
+         HarfBuzzSharp 8.3.1.5 and its Linux native library, and the tests load those versions. -->
+    <PackageReference Include="SkiaSharp.HarfBuzz" Version="3.119.4" ExcludeAssets="native" />
+    <PackageReference Include="HarfBuzzSharp" Version="8.3.1.5" ExcludeAssets="native" />
+    <PackageReference Include="HarfBuzzSharp.NativeAssets.Linux" Version="8.3.1.5" />
   </ItemGroup>
 
   <ItemGroup>

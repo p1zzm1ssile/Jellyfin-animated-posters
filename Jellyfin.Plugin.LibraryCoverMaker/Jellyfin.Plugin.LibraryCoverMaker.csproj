@@ -24,11 +24,23 @@
          "native" is excluded as well: without it, the Windows and macOS libraries that
          SkiaSharp depends on end up in the publish output (about 290 MB). -->
     <PackageReference Include="SkiaSharp" Version="3.119.4" ExcludeAssets="runtime;native" />
+    <!-- Titles are shaped with HarfBuzz (kerning, right-to-left scripts), also the copy Jellyfin loads:
+         12.0, 12.1 and 12.2 all ship SkiaSharp.HarfBuzz 3.119.4 and HarfBuzzSharp 8.3.1.5 with their native
+         library. Compile only, like SkiaSharp above. -->
+    <PackageReference Include="SkiaSharp.HarfBuzz" Version="3.119.4" ExcludeAssets="runtime;native" />
+    <PackageReference Include="HarfBuzzSharp" Version="8.3.1.5" ExcludeAssets="runtime;native" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The tests call the store's internal members (CoverStore.Save) directly. -->
+    <!-- The bundled fonts and their license texts travel inside the plugin DLL, so the release zip stays
+         a single file. The resource name is "Fonts/" plus the file name, whatever the namespace or folder. -->
+    <EmbeddedResource Include="Rendering\Fonts\*" LogicalName="Fonts/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The tests call internal members of the store (CoverStore.Save) and of the font catalog
+         (FontCatalog.BaselineBelowMiddle) directly. -->
     <InternalsVisibleTo Include="LibraryCoverMaker.Tests" />
   </ItemGroup>
 
