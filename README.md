@@ -105,7 +105,7 @@ frames with transparency) and a still JPEG of the same cover:
 | LG webOS app | animates | shown |
 | Jellyfin Media Player (PC) | animates | shown |
 | Jellyfin for Android (phone) | animates | shown |
-| Fire TV | not checked yet | not checked yet |
+| Jellyfin for Android TV (Fire TV) | animates | not checked yet |
 | Samsung Tizen | not checked yet | not checked yet |
 | iOS | not checked yet | not checked yet |
 
