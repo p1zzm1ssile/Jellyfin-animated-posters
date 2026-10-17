@@ -7,4 +7,8 @@ services:
     volumes:
       # Your media, read-only. Map as many folders as you like under /media.
       - /path/to/media:/media:ro
+    environment:
+      # Optional: your Jellyfin address, so the page can send covers and posters straight to it.
+      # Leave it out to only download them.
+      - JELLYFIN_URL=http://192.168.1.10:8096
     restart: unless-stopped
