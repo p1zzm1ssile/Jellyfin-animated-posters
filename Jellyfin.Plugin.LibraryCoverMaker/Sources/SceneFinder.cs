@@ -672,6 +672,9 @@ public sealed class SceneFinder
         (int? Index, (int Width, int Height)? Size) probe,
         CancellationToken ct)
     {
+        // Made on every check: the render queue deletes the plugin's temporary folder at each start of Jellyfin, and
+        // without it ffmpeg cannot write its result files, so every clip would look unreadable.
+        Directory.CreateDirectory(_scratch);
         var name = System.IO.Path.Combine(_scratch, "scene-finder-" + Guid.NewGuid().ToString("N"));
         var cropFile = name + "-crop.txt";
         var cutFile = name + "-cut.txt";

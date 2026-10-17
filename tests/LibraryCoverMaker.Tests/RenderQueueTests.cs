@@ -46,7 +46,8 @@ public sealed class RenderQueueTests : IDisposable
     private RenderQueue Start(
         Func<Guid, BuildReason, CancellationToken, Task<BuildResult>> build,
         Func<bool>? playing = null,
-        Func<Guid, bool>? exists = null)
+        Func<Guid, bool>? exists = null,
+        Action<Guid>? startUp = null)
     {
         var queue = new RenderQueue(
             build,
@@ -54,7 +55,8 @@ public sealed class RenderQueueTests : IDisposable
             exists ?? (_ => true),
             _store,
             NullLogger<RenderQueue>.Instance,
-            TimeSpan.FromMilliseconds(10));
+            TimeSpan.FromMilliseconds(10),
+            startUp);
         queue.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
         _started.Add(queue);
         return queue;
@@ -237,6 +239,35 @@ public sealed class RenderQueueTests : IDisposable
         Assert.True(File.Exists(_store.StillPath(A, kept)));
         Assert.False(File.Exists(_store.AnimatedPath(A, orphan)));
         Assert.False(File.Exists(_store.StillPath(A, orphan)));
+    }
+
+    [Fact]
+    public void Start_hands_every_known_library_to_the_start_up_step_before_any_build()
+    {
+        _store.Update(A, state => state.Pinned = true);
+        _store.Update(B, state => state.Pinned = true);
+        var seen = new List<Guid>();
+        var builds = 0;
+
+        var queue = Start(
+            (_, _, _) =>
+            {
+                builds++;
+                return Task.FromResult(Ok());
+            },
+            startUp: id =>
+            {
+                if (id == A)
+                {
+                    throw new IOException("a step that fails is logged and the others still run");
+                }
+
+                seen.Add(id);
+            });
+
+        Assert.Equal(new[] { B }, seen);
+        Assert.Equal(0, builds);
+        Assert.NotNull(queue);
     }
 
     [Fact]

@@ -41,6 +41,7 @@ public sealed class RenderQueue : IHostedService
     private CancellationTokenSource? _stopping;
     private Task _worker = Task.CompletedTask;
     private bool _stopped;
+    private readonly Action<Guid>? _startUp;
 
     /// <param name="build">Builds one library's cover.</param>
     /// <param name="someoneIsPlaying">Whether a session is playing something right now.</param>
@@ -48,14 +49,20 @@ public sealed class RenderQueue : IHostedService
     /// <param name="store">Where the covers live.</param>
     /// <param name="log">The log.</param>
     /// <param name="playbackPoll">How often to look again while someone is playing; 30 seconds when null.</param>
+    /// <param name="startUp">
+    /// Runs for each library the store knows at start, before any build: the applier's repair of a save cut short
+    /// (<see cref="CoverApplier.RecoverInterruptedSave"/>). One that throws is logged and the others still run.
+    /// </param>
     public RenderQueue(
         Func<Guid, BuildReason, CancellationToken, Task<BuildResult>> build,
         Func<bool> someoneIsPlaying,
         Func<Guid, bool> libraryExists,
         CoverStore store,
         ILogger<RenderQueue> log,
-        TimeSpan? playbackPoll = null)
+        TimeSpan? playbackPoll = null,
+        Action<Guid>? startUp = null)
     {
+        _startUp = startUp;
         _build = build;
         _someoneIsPlaying = someoneIsPlaying;
         _libraryExists = libraryExists;
@@ -389,12 +396,26 @@ public sealed class RenderQueue : IHostedService
         {
             foreach (var id in _store.KnownLibraries())
             {
+                // First, while the store still has every cover that the repair compares a Primary with.
+                StartUp(id);
                 RemoveOrphanCovers(id);
             }
         }
         catch (Exception ex)
         {
             _log.LogWarning(ex, "Library Cover Maker: could not list the libraries to clean");
+        }
+    }
+
+    private void StartUp(Guid id)
+    {
+        try
+        {
+            _startUp?.Invoke(id);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Library Cover Maker: could not check library {LibraryId} at start", id);
         }
     }
 

@@ -1514,6 +1514,20 @@ public sealed class SceneFinderFfmpegTests : IClassFixture<SceneFinderFfmpegTest
     }
 
     [DockerFact]
+    public async Task A_scratch_folder_deleted_since_the_start_is_made_again()
+    {
+        // The render queue empties the plugin's temporary folder at every start of Jellyfin, by deleting it; the
+        // first build after that must still read its clips.
+        var folder = System.IO.Path.Combine(_clips.Root, "gone-" + Guid.NewGuid().ToString("N"));
+
+        var finder = FinderWith(null, folder, (8, 0.9));
+        var choice = await finder.FindStartAsync(VideoOf("letter.mp4"), Clip, CancellationToken.None);
+
+        Assert.Equal(new CropRect(0, 90, 1280, 540), Assert.IsType<SceneChoice>(choice).Crop);
+        Assert.Empty(Directory.GetFiles(folder));
+    }
+
+    [DockerFact]
     public async Task A_portrait_clip_stored_sideways_is_measured_in_its_turned_size()
     {
         // Stored 1280x720, turned 90 degrees: the filters see 720x1280. With the stored size the box would have been

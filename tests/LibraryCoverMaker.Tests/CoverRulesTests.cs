@@ -268,6 +268,28 @@ public sealed class CoverRulesTests : IDisposable
     }
 
     [Fact]
+    public void Only_videos_of_a_known_length_can_give_scenes()
+    {
+        // Live TV, a recording still being written or a stream saved through a pipe have no runtime, and the scene
+        // finder never takes a clip from them: drawing one would only cost the slot a try.
+        var film = new Movie { Path = "/media/film.mkv", RunTimeTicks = 100 * TimeSpan.TicksPerSecond };
+        var live = new Movie { Path = "/media/live.webm" };
+        var zero = new Movie { Path = "/media/zero.mkv", RunTimeTicks = 0 };
+        var remote = new Movie { Path = "https://example.invalid/film.mkv", RunTimeTicks = TimeSpan.TicksPerHour };
+        var episode = new Episode { Path = "/media/show/s01e01.mkv", RunTimeTicks = 20 * TimeSpan.TicksPerMinute };
+        var liveEpisode = new Episode { Path = "/media/show/s01e02.ts" };
+
+        Assert.True(JellyfinCoverSource.CanGiveScenes(film));
+        Assert.False(JellyfinCoverSource.CanGiveScenes(live));
+        Assert.False(JellyfinCoverSource.CanGiveScenes(zero));
+        Assert.False(JellyfinCoverSource.CanGiveScenes(remote));
+        Assert.True(JellyfinCoverSource.CanGiveScenes(episode));
+        Assert.False(JellyfinCoverSource.CanGiveScenes(liveEpisode));
+        Assert.True(JellyfinCoverSource.CanGiveScenes(new Series()));
+        Assert.False(JellyfinCoverSource.CanGiveScenes(new Folder()));
+    }
+
+    [Fact]
     public void Hdr_comes_from_the_default_video_stream_range()
     {
         var pq = new MediaStream
@@ -629,6 +651,27 @@ public sealed class CoverRulesTests : IDisposable
         Assert.Equal(2, _source.Asked.Take(2).Select(asked => asked.Title).Distinct().Count());
         Assert.Equal(2, _source.Asked.Skip(2).Select(asked => asked.Title).Distinct().Count());
         Assert.Equal(SlotKind.Image, Assert.Single(_renderer.Plans[0].Slots).Kind);
+    }
+
+    [Fact]
+    public async Task Cover_left_without_any_slot_although_titles_were_tried_is_a_warning()
+    {
+        // A name-only cover because every clip of every title failed (once, the scratch folder was missing) must
+        // never pass in silence; a library with no eligible title is not a failure.
+        var log = new CountingLogger();
+        var builder = new CoverBuilder(
+            _source, _store, _applier, new OverlayRenderer(), _renderer.RenderAsync, () => _config,
+            () => new Random(7), log);
+        await builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
+        Assert.Equal(0, log.Warnings);
+
+        Titles(TitleA, TitleB, TitleC);
+        _store.Update(Library, state => state.Mode = CoverMode.Scenes);
+        _source.Fails = _ => true;
+        var result = await builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
+
+        Assert.Equal(new BuildResult(true, null, 0), result); // the name-only cover
+        Assert.Equal(1, log.Warnings);
     }
 
     [Fact]
@@ -1412,6 +1455,203 @@ public sealed class CoverRulesTests : IDisposable
     }
 
     [Fact]
+    public async Task Own_cover_is_moved_out_of_the_way_of_the_save_and_then_deleted()
+    {
+        // Jellyfin cannot write a file that a request is reading, so the plugin's last cover is renamed first: the
+        // save gets a path no one reads, and readers keep the old file.
+        _images.RealTimes = true;
+        var state = new LibraryCoverState { LibraryId = Library };
+        await _applier.ApplyAsync(state, Generated(), PrimaryFormat.Animated, CancellationToken.None);
+        var folder = Path.GetDirectoryName(_images.Current!.Path)!;
+
+        await _applier.ApplyAsync(state, Generated(), PrimaryFormat.Animated, CancellationToken.None);
+
+        Assert.False(_images.PrimaryFileAtSave);
+        Assert.True(_images.ReplacingDuringSave);
+        Assert.False(_applier.IsReplacingPrimary(Library));
+        Assert.Equal(new[] { _images.Current!.Path }, Directory.GetFiles(folder));
+        Assert.Equal(_images.Current.Path, state.AppliedPrimaryPath);
+    }
+
+    [Fact]
+    public async Task Failed_save_puts_the_own_cover_back()
+    {
+        _images.RealTimes = true;
+        var state = new LibraryCoverState { LibraryId = Library };
+        var first = Generated();
+        File.WriteAllBytes(_store.AnimatedPath(Library, first.Id), [7, 7, 7]);
+        await _applier.ApplyAsync(state, first, PrimaryFormat.Animated, CancellationToken.None);
+        var path = _images.Current!.Path;
+        var time = File.GetLastWriteTimeUtc(path);
+        _images.SaveFailure = new IOException("disk full");
+
+        await Assert.ThrowsAsync<IOException>(
+            () => _applier.ApplyAsync(state, Generated(), PrimaryFormat.Animated, CancellationToken.None));
+
+        // The very file is back, so the item, which still names it with its time, is right.
+        Assert.False(_images.PrimaryFileAtSave);
+        Assert.Equal(new byte[] { 7, 7, 7 }, File.ReadAllBytes(path));
+        Assert.Equal(time, File.GetLastWriteTimeUtc(path));
+        Assert.Equal(new[] { path }, Directory.GetFiles(Path.GetDirectoryName(path)!));
+        Assert.Equal(first.Id, state.CurrentCoverId);
+        Assert.False(_applier.IsReplacingPrimary(Library));
+    }
+
+    [Fact]
+    public async Task Images_the_plugin_did_not_apply_are_written_over_in_place()
+    {
+        // An admin's image before the first apply, then one written at the plugin's path since (an upload in Edit
+        // images, which the watcher has not recorded): neither is moved or deleted by the plugin.
+        var state = new LibraryCoverState { LibraryId = Library };
+        _images.SetCurrent("folder.webp", [5], automatic: false);
+        await _applier.ApplyAsync(state, Generated(), PrimaryFormat.Animated, CancellationToken.None);
+        Assert.True(_images.PrimaryFileAtSave);
+
+        var upload = _images.SetCurrent("folder.webp", [6], automatic: false);
+        state.AppliedPrimaryPath = upload;
+        state.AppliedPrimaryModified = File.GetLastWriteTimeUtc(upload).AddMinutes(-30);
+        await _applier.ApplyAsync(state, Generated(), PrimaryFormat.Animated, CancellationToken.None);
+
+        Assert.True(_images.PrimaryFileAtSave);
+        Assert.NotNull(state.Original);
+    }
+
+    [Fact]
+    public async Task Original_shown_again_is_never_moved()
+    {
+        var state = new LibraryCoverState { LibraryId = Library };
+        var shown = _images.SetCurrent("admin.jpg", [4], automatic: false);
+        state.Original = Record(CoverOrigin.Original, TitleA);
+        state.CurrentCoverId = state.Original.Id;
+        state.AppliedPrimaryPath = shown;
+        state.AppliedPrimaryModified = _images.Current!.Modified;
+
+        await _applier.ApplyAsync(state, Generated(), PrimaryFormat.Animated, CancellationToken.None);
+
+        Assert.True(_images.PrimaryFileAtSave);
+    }
+
+    [Fact]
+    public async Task Earlier_cover_left_by_a_save_elsewhere_is_removed()
+    {
+        // The last cover could not be moved (Jellyfin's item has another time for it), and Jellyfin saved the new one
+        // to its metadata folder, leaving the old file: it is still the plugin's own, so it goes.
+        _images.RealTimes = true;
+        var state = new LibraryCoverState { LibraryId = Library };
+        await _applier.ApplyAsync(state, Generated(), PrimaryFormat.Animated, CancellationToken.None);
+        var stale = _images.Current!.Path;
+        _images.SetCurrentTime(_images.Current.Modified.AddMinutes(5));
+        _images.KeepsOld = true;
+        _images.SaveTo = Path.Combine(_root, "jellyfin", "metadata", "poster.webp");
+
+        await _applier.ApplyAsync(state, Generated(), PrimaryFormat.Animated, CancellationToken.None);
+
+        Assert.True(_images.PrimaryFileAtSave);
+        Assert.False(File.Exists(stale));
+        Assert.Equal(_images.SaveTo, state.AppliedPrimaryPath);
+    }
+
+    [Fact]
+    public async Task Earlier_file_changed_since_is_left_where_it_is()
+    {
+        _images.RealTimes = true;
+        var state = new LibraryCoverState { LibraryId = Library };
+        await _applier.ApplyAsync(state, Generated(), PrimaryFormat.Animated, CancellationToken.None);
+        var other = _images.Current!.Path;
+        File.WriteAllBytes(other, [3, 1, 4, 1, 5]); // someone else's picture now, not one of the store's covers
+        _images.KeepsOld = true;
+        _images.SaveTo = Path.Combine(_root, "jellyfin", "metadata", "poster.webp");
+
+        await _applier.ApplyAsync(state, Generated(), PrimaryFormat.Animated, CancellationToken.None);
+
+        Assert.True(File.Exists(other));
+    }
+
+    // ---- A save interrupted by a stop of Jellyfin ------------------------------------------------------------------
+
+    // The name MoveOwnPrimaryAside gives the cover it moves out of the way.
+    private static string Aside(string path) =>
+        Path.Combine(Path.GetDirectoryName(path)!, "." + Path.GetFileName(path) + "." + Guid.NewGuid().ToString("N"));
+
+    private async Task<(LibraryCoverState State, string Path)> AppliedOnce(byte[] bytes)
+    {
+        _images.RealTimes = true;
+        var record = Generated();
+        File.WriteAllBytes(_store.AnimatedPath(Library, record.Id), bytes);
+        LibraryCoverState? state = null;
+        await _store.UpdateAsync(
+            Library,
+            async (loaded, ct) =>
+            {
+                await _applier.ApplyAsync(loaded, record, PrimaryFormat.Animated, ct);
+                state = loaded;
+            },
+            CoverMode.Art,
+            CancellationToken.None);
+        return (state!, _images.Current!.Path);
+    }
+
+    [Fact]
+    public async Task Cover_left_aside_by_a_stop_during_the_save_is_put_back_at_start()
+    {
+        var (_, path) = await AppliedOnce([7, 7, 7]);
+        var time = File.GetLastWriteTimeUtc(path);
+        File.Move(path, Aside(path)); // Jellyfin stopped before SaveImage wrote anything
+
+        _applier.RecoverInterruptedSave(Library);
+
+        Assert.Equal(new byte[] { 7, 7, 7 }, File.ReadAllBytes(path));
+        Assert.Equal(time, File.GetLastWriteTimeUtc(path));
+        Assert.Equal(new[] { path }, Directory.GetFiles(Path.GetDirectoryName(path)!));
+    }
+
+    [Fact]
+    public async Task Half_written_primary_is_replaced_by_the_cover_left_aside()
+    {
+        var (_, path) = await AppliedOnce([7, 7, 7]);
+        File.Move(path, Aside(path));
+        File.WriteAllBytes(path, [0]); // SaveImage had started: a file no cover of the store has
+
+        _applier.RecoverInterruptedSave(Library);
+
+        Assert.Equal(new byte[] { 7, 7, 7 }, File.ReadAllBytes(path));
+        Assert.Single(Directory.GetFiles(Path.GetDirectoryName(path)!));
+    }
+
+    [Fact]
+    public async Task Cover_left_aside_after_a_finished_save_is_deleted_at_start()
+    {
+        // SaveImage wrote the new cover (one of the store's) and Jellyfin stopped before the old one was deleted.
+        var (_, path) = await AppliedOnce([7, 7, 7]);
+        var aside = Aside(path);
+        File.Copy(path, aside);
+        var next = Generated();
+        File.Copy(_store.AnimatedPath(Library, next.Id), path, overwrite: true);
+
+        _applier.RecoverInterruptedSave(Library);
+
+        Assert.False(File.Exists(aside));
+        Assert.Equal(File.ReadAllBytes(_store.AnimatedPath(Library, next.Id)), File.ReadAllBytes(path));
+    }
+
+    [Fact]
+    public async Task File_left_aside_that_is_not_the_applied_cover_is_deleted_and_nothing_put_back()
+    {
+        var (_, path) = await AppliedOnce([7, 7, 7]);
+        var aside = Aside(path);
+        File.Move(path, aside);
+        File.SetLastWriteTimeUtc(aside, File.GetLastWriteTimeUtc(aside).AddHours(-2));
+        var unrelated = Path.Combine(Path.GetDirectoryName(path)!, ".other.webp." + Guid.NewGuid().ToString("N"));
+        File.WriteAllBytes(unrelated, [1]);
+
+        _applier.RecoverInterruptedSave(Library);
+
+        Assert.False(File.Exists(aside));
+        Assert.False(File.Exists(path));
+        Assert.True(File.Exists(unrelated)); // not a name the plugin gives this library's cover
+    }
+
+    [Fact]
     public async Task Applier_marks_the_library_while_it_applies_and_records_the_image_first()
     {
         var record = Generated();
@@ -2073,6 +2313,20 @@ public sealed class CoverRulesTests : IDisposable
 
         public bool ApplyingDuringPersist { get; private set; }
 
+        /// <summary>Gives each saved file the time recorded for it, as Jellyfin does (the file's own time).</summary>
+        public bool RealTimes { get; set; }
+
+        /// <summary>Saves the next image here instead of folder.ext, as Jellyfin does when that path is busy.</summary>
+        public string? SaveTo { get; set; }
+
+        /// <summary>Leaves the previous image's file in place, as Jellyfin does after saving to another path.</summary>
+        public bool KeepsOld { get; set; }
+
+        /// <summary>Whether the file the item named was still at its path when SaveImage started.</summary>
+        public bool? PrimaryFileAtSave { get; private set; }
+
+        public bool ReplacingDuringSave { get; private set; }
+
         public string SetCurrent(string name, byte[] bytes, bool automatic)
         {
             Directory.CreateDirectory(folder);
@@ -2081,6 +2335,9 @@ public sealed class CoverRulesTests : IDisposable
             Current = new PrimaryImage(path, File.GetLastWriteTimeUtc(path), IsLocalFile: true, Automatic: automatic);
             return path;
         }
+
+        // What Jellyfin's item records for the image's time, apart from the file's own.
+        public void SetCurrentTime(DateTime modified) => Current = Current! with { Modified = modified };
 
         public ILibraryImage? Find(Guid libraryId)
         {
@@ -2093,15 +2350,23 @@ public sealed class CoverRulesTests : IDisposable
         public async Task SaveAsync(Stream image, string mimeType, CancellationToken ct)
         {
             ApplyingDuringSave = Applier!.IsApplying(Library);
+            ReplacingDuringSave = Applier.IsReplacingPrimary(Library);
+            PrimaryFileAtSave = Current is null ? null : File.Exists(Current.Path);
             if (SaveFailure is not null)
             {
+                // A save that failed half way leaves a broken file at its path.
+                if (Current is not null)
+                {
+                    File.WriteAllBytes(Current.Path, [0]);
+                }
+
                 throw SaveFailure;
             }
 
             using var copy = new MemoryStream();
             await image.CopyToAsync(copy, ct);
             Saved.Add((mimeType, copy.ToArray()));
-            if (Current is not null)
+            if (Current is not null && !KeepsOld)
             {
                 File.Delete(Current.Path);
             }
@@ -2113,10 +2378,16 @@ public sealed class CoverRulesTests : IDisposable
                 "image/gif" => ".gif",
                 _ => ".jpg",
             };
-            Directory.CreateDirectory(folder);
-            var path = Path.Combine(folder, "folder" + extension);
+            var path = SaveTo ?? Path.Combine(folder, "folder" + extension);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllBytes(path, copy.ToArray());
-            Current = new PrimaryImage(path, new DateTime(2026, 10, 16, 3, 0, ++_saves, DateTimeKind.Utc), true, false);
+            var modified = new DateTime(2026, 10, 16, 3, 0, ++_saves, DateTimeKind.Utc);
+            if (RealTimes)
+            {
+                File.SetLastWriteTimeUtc(path, modified);
+            }
+
+            Current = new PrimaryImage(path, modified, true, false);
         }
 
         public Task PersistAsync()
