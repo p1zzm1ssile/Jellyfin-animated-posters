@@ -7,6 +7,7 @@ using Jellyfin.Plugin.LibraryCoverMaker.Scheduling;
 using Jellyfin.Plugin.LibraryCoverMaker.Selection;
 using Jellyfin.Plugin.LibraryCoverMaker.Sources;
 using Jellyfin.Plugin.LibraryCoverMaker.Storage;
+using Jellyfin.Plugin.LibraryCoverMaker.Web;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Chapters;
 using MediaBrowser.Controller.Events;
@@ -15,9 +16,11 @@ using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Controller.Trickplay;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Jellyfin.Plugin.LibraryCoverMaker;
 
@@ -60,6 +63,14 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<IHostedService>(provider => provider.GetRequiredService<RenderQueue>());
         services.AddSingleton<IHostedService, RenewalScheduler>();
         services.AddSingleton<IHostedService, PrimaryImageWatcher>();
+
+        // Answers Jellyfin's item image action for a library's animated cover before its image processor runs. A
+        // filter of MVC, so it runs behind all of Jellyfin's middleware (IP access rules, base URL, CORS, errors). A
+        // singleton, so its memo is shared by every request. The options setup is what Configure<MvcOptions> adds,
+        // without the AddOptions call that comes with it: the host has the options services already.
+        services.AddSingleton<CoverImageFilter>();
+        services.AddSingleton<IConfigureOptions<MvcOptions>>(
+            new ConfigureOptions<MvcOptions>(options => options.Filters.AddService<CoverImageFilter>()));
 
         // Jellyfin finds the consumers of its events in the container: a user created, or a user's policy saved.
         services.AddScoped<IEventConsumer<UserUpdatedEventArgs>, AudienceChangeConsumer>();
