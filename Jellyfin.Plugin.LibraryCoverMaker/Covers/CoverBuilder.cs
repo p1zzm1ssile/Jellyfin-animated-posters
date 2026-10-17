@@ -968,7 +968,7 @@ internal sealed class JellyfinCoverSource(
         }
 
         var shown = video.Id == title.Id ? (Guid?)null : video.Id;
-        var hdr = IsHdr(Probe(video));
+        var hdr = IsHdr(scenes.VideoStream(video));
         if (locked?.MomentSeconds is double moment)
         {
             var clip = await CoverBuilder.LockedClipAsync(video, moment, seconds, hdr, scenes.CropAtAsync, ct)
@@ -1030,10 +1030,6 @@ internal sealed class JellyfinCoverSource(
 
     // The scene finder needs the length to place a clip; without it a video gives none.
     private static bool HasLength(Video video) => video.RunTimeTicks is > 0;
-
-    // What Jellyfin's probe says of the video stream; nothing without the media source manager (the tests).
-    private static MediaStream? Probe(Video video) =>
-        BaseItem.MediaSourceManager is null ? null : video.GetDefaultVideoStream();
 
     private IReadOnlyList<BaseItem> Query(Guid ancestorId, BaseItemKind[] kinds) => Query([ancestorId], kinds);
 
