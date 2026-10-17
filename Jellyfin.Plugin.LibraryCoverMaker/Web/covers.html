@@ -1,0 +1,472 @@
+<div id="LibraryCoverMakerPage" data-role="page" class="page type-interior pluginConfigurationPage lcm-page"
+     data-controller="__plugin/librarycovers.js">
+    <div data-role="content">
+        <div class="content-primary">
+            <style>
+                /* Text colors meet 4.5:1 on Jellyfin's light dashboard (#f2f2f2) and on the cards drawn on it; the page
+                   script marks a dark theme with data-lcm-theme="dark", which takes the light shades. White text sits
+                   on --lcm-fill, 4.75:1 in both themes. */
+                .lcm-page {
+                    --lcm-accent: #0b7ab0;
+                    --lcm-fill: #0b7ab0;
+                    --lcm-error: #b3261e;
+                    --lcm-done: #17702f;
+                    --lcm-warn: #8a5100;
+                    --lcm-line: rgba(127, 127, 127, 0.35);
+                    --lcm-soft: rgba(127, 127, 127, 0.1);
+                }
+                .lcm-page[data-lcm-theme="dark"] {
+                    --lcm-accent: #00a4dc;
+                    --lcm-error: #ff7a7a;
+                    --lcm-done: #5fd08e;
+                    --lcm-warn: #f0b35a;
+                }
+                .lcm-page .lcm-muted { opacity: 0.75; }
+                .lcm-page .lcm-small { font-size: 0.85em; }
+                .lcm-page .lcm-bar {
+                    display: flex;
+                    flex-wrap: wrap;
+                    align-items: flex-end;
+                    gap: 0.75em 1.5em;
+                    padding: 0.75em 1em;
+                    border: 1px solid var(--lcm-line);
+                    border-radius: 8px;
+                    background: var(--lcm-soft);
+                    margin-bottom: 1em;
+                }
+                .lcm-page .lcm-bar .lcm-schedule { flex: 1 1 18em; }
+                .lcm-page .lcm-bar .selectContainer { margin: 0; min-width: 11em; }
+                .lcm-page .lcm-bar .emby-button { margin: 0; }
+                .lcm-page .lcm-status { min-height: 1.4em; margin: 0 0 0.75em; }
+                .lcm-page .lcm-status[data-kind="error"], .lcm-page .lcm-error { color: var(--lcm-error); }
+                .lcm-page .lcm-status[data-kind="done"] { color: var(--lcm-done); }
+                .lcm-page .lcm-notice { color: var(--lcm-warn); }
+                .lcm-page .lcm-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(16em, 1fr));
+                    gap: 1em;
+                }
+                .lcm-page .lcm-card {
+                    display: grid;
+                    gap: 0.45em;
+                    align-content: start;
+                    padding: 0.6em;
+                    border: 1px solid var(--lcm-line);
+                    border-radius: 8px;
+                    background: var(--lcm-soft);
+                }
+                .lcm-page .lcm-card.lcm-selected {
+                    border-color: var(--lcm-accent);
+                    box-shadow: 0 0 0 1px var(--lcm-accent);
+                }
+                .lcm-page .lcm-card h3 {
+                    margin: 0;
+                    font-size: 1.05em;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: 0.5em;
+                }
+                .lcm-page .lcm-card h3 span:first-child {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .lcm-page .lcm-cover {
+                    position: relative;
+                    aspect-ratio: 16 / 9;
+                    border-radius: 6px;
+                    overflow: hidden;
+                    background: #111;
+                    color: #ccc;
+                    display: grid;
+                    place-items: center;
+                }
+                .lcm-page .lcm-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+                .lcm-page .lcm-cover img:not([src]) { display: none; }
+                .lcm-page .lcm-cover .lcm-empty { font-size: 0.85em; padding: 0 0.5em; text-align: center; }
+                .lcm-page .lcm-badge {
+                    flex: none;
+                    font-size: 0.7em;
+                    font-weight: 700;
+                    letter-spacing: 0.04em;
+                    padding: 0.3em 0.65em;
+                    border-radius: 999px;
+                    color: #fff;
+                    background: var(--lcm-fill);
+                    white-space: nowrap;
+                }
+                .lcm-page .lcm-badge[data-kind="scenes"] { background: #6b4fd8; }
+                .lcm-page .lcm-badge[data-kind="manual"] { background: #b25d00; }
+                .lcm-page .lcm-badge[data-kind="off"] { background: #666; }
+                .lcm-page .lcm-btns { display: flex; flex-wrap: wrap; gap: 0.4em; }
+                .lcm-page .lcm-btns .emby-button { margin: 0; padding: 0.45em 0.9em; font-size: 0.9em; }
+                .lcm-page .lcm-building { font-style: italic; }
+                .lcm-page .lcm-editor {
+                    margin-top: 1.5em;
+                    padding: 1em;
+                    border: 1px solid var(--lcm-line);
+                    border-radius: 8px;
+                    background: var(--lcm-soft);
+                }
+                .lcm-page .lcm-editor-head {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: 1em;
+                    flex-wrap: wrap;
+                }
+                .lcm-page .lcm-editor-head h2 { margin: 0; }
+                .lcm-page .lcm-columns {
+                    display: grid;
+                    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+                    gap: 1.5em;
+                    margin-top: 1em;
+                }
+                @media (max-width: 60em) { .lcm-page .lcm-columns { grid-template-columns: minmax(0, 1fr); } }
+                .lcm-page .lcm-col { display: grid; gap: 0.75em; align-content: start; min-width: 0; }
+                .lcm-page .lcm-heading {
+                    margin: 0.75em 0 0;
+                    font-size: 0.8em;
+                    font-weight: 700;
+                    letter-spacing: 0.07em;
+                    text-transform: uppercase;
+                    opacity: 0.75;
+                }
+                .lcm-page .lcm-seg {
+                    display: inline-flex;
+                    border: 1px solid var(--lcm-line);
+                    border-radius: 7px;
+                    overflow: hidden;
+                    width: fit-content;
+                }
+                .lcm-page .lcm-seg button {
+                    font: inherit;
+                    color: inherit;
+                    background: transparent;
+                    border: 0;
+                    padding: 0.5em 1em;
+                    cursor: pointer;
+                }
+                .lcm-page .lcm-seg button + button { border-left: 1px solid var(--lcm-line); }
+                .lcm-page .lcm-seg button[aria-pressed="true"] { background: var(--lcm-fill); color: #fff; }
+                .lcm-page .lcm-seg button:disabled { cursor: default; opacity: 0.6; }
+                .lcm-page .lcm-row { display: flex; flex-wrap: wrap; gap: 0 1.5em; align-items: center; }
+                .lcm-page .lcm-row .inputContainer, .lcm-page .lcm-row .selectContainer {
+                    flex: 1 1 9em;
+                    margin-bottom: 0.75em;
+                }
+                .lcm-page .lcm-col .checkboxContainer { margin-bottom: 0.4em; }
+                .lcm-page .lcm-history {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(8.5em, 1fr));
+                    gap: 0.6em;
+                }
+                .lcm-page .lcm-history figure { margin: 0; display: grid; gap: 0.3em; }
+                .lcm-page .lcm-history figcaption {
+                    font-size: 0.8em;
+                    display: flex;
+                    justify-content: space-between;
+                    gap: 0.3em;
+                    align-items: center;
+                    flex-wrap: wrap;
+                }
+                .lcm-page .lcm-history .emby-button { margin: 0; padding: 0.25em 0.6em; font-size: 0.8em; }
+                .lcm-page .lcm-slots { display: grid; gap: 0.5em; }
+                .lcm-page .lcm-slot {
+                    border: 1px solid var(--lcm-line);
+                    border-radius: 7px;
+                    padding: 0.5em;
+                    display: grid;
+                    gap: 0.5em;
+                }
+                .lcm-page .lcm-slot-line {
+                    display: grid;
+                    grid-template-columns: 1.5em 6.5em minmax(0, 1fr) auto;
+                    gap: 0.6em;
+                    align-items: center;
+                }
+                /* On a phone the slot's buttons get a row of their own, so its title keeps the width. */
+                @media (max-width: 30em) {
+                    .lcm-page .lcm-slot-line { grid-template-columns: 1.5em 5em minmax(0, 1fr); }
+                    .lcm-page .lcm-slot-line > .lcm-btns { grid-column: 1 / -1; justify-content: flex-end; }
+                }
+                .lcm-page .lcm-slot-n { font-weight: 700; color: var(--lcm-accent); text-align: center; }
+                .lcm-page .lcm-slot-what { display: grid; gap: 0.15em; min-width: 0; }
+                .lcm-page .lcm-slot-what b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .lcm-page .lcm-slot-free { font-style: italic; opacity: 0.75; }
+                .lcm-page .lcm-slot.lcm-unused { opacity: 0.55; }
+                .lcm-page .lcm-lock {
+                    font: inherit;
+                    font-size: 0.8em;
+                    font-weight: 700;
+                    color: inherit;
+                    background: transparent;
+                    border: 1px solid var(--lcm-line);
+                    border-radius: 999px;
+                    padding: 0.35em 0.9em;
+                    cursor: pointer;
+                }
+                .lcm-page .lcm-lock[aria-pressed="true"] { background: #b25d00; border-color: #b25d00; color: #fff; }
+                .lcm-page .lcm-lock:disabled { cursor: default; opacity: 0.6; }
+                .lcm-page .lcm-slot-panel {
+                    display: grid;
+                    gap: 0.6em;
+                    padding: 0.6em;
+                    border-radius: 6px;
+                    background: var(--lcm-soft);
+                }
+                .lcm-page .lcm-results {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 0.35em;
+                    max-height: 12em;
+                    overflow: auto;
+                }
+                .lcm-page .lcm-results button, .lcm-page .lcm-backdrops button {
+                    font: inherit;
+                    font-size: 0.85em;
+                    color: inherit;
+                    background: transparent;
+                    border: 1px solid var(--lcm-line);
+                    border-radius: 999px;
+                    padding: 0.3em 0.8em;
+                    cursor: pointer;
+                }
+                .lcm-page .lcm-results button[aria-pressed="true"],
+                .lcm-page .lcm-backdrops button[aria-pressed="true"] {
+                    border-color: var(--lcm-accent);
+                    box-shadow: 0 0 0 1px var(--lcm-accent);
+                }
+                .lcm-page .lcm-backdrops {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(8em, 1fr));
+                    gap: 0.5em;
+                }
+                .lcm-page .lcm-backdrops button { border-radius: 6px; padding: 0.25em; display: grid; gap: 0.25em; }
+                .lcm-page .lcm-moment {
+                    display: grid;
+                    grid-template-columns: minmax(10em, 16em) minmax(0, 1fr);
+                    gap: 0.75em;
+                    align-items: center;
+                }
+                .lcm-page .lcm-moment input[type="range"] { width: 100%; }
+                .lcm-page .lcm-chip {
+                    font-size: 0.85em;
+                    border: 1px solid var(--lcm-line);
+                    border-radius: 999px;
+                    padding: 0.2em 0.7em;
+                }
+                .lcm-page dialog {
+                    max-width: 32em;
+                    border: 1px solid var(--lcm-line);
+                    border-radius: 8px;
+                    background: #202020;
+                    color: #eee;
+                }
+                .lcm-page dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+                .lcm-page dialog p { margin: 0 0 0.75em; }
+                .lcm-page dialog .lcm-warning { font-weight: 600; color: var(--lcm-warn); }
+                .lcm-page .lcm-row .lcm-wide { flex: 2 1 12em; }
+                .lcm-page .lcm-save-bar { margin-top: 1em; }
+                .lcm-page .emby-button:disabled { opacity: 0.5; cursor: default; }
+                .lcm-page [hidden] { display: none !important; }
+            </style>
+
+            <div class="verticalSection">
+                <h2 class="sectionTitle">Library Cover Maker</h2>
+                <p class="lcm-muted">
+                    An animated cover for every library, rendered on the server and renewed on a schedule.
+                </p>
+            </div>
+
+            <div class="lcm-bar">
+                <div class="lcm-schedule">
+                    <div><b>Renewal:</b> <span id="lcm-schedule">Loading...</span></div>
+                    <div class="lcm-muted lcm-small">Change it in Scheduled Tasks, task "Refresh library covers".</div>
+                </div>
+                <div class="selectContainer">
+                    <label class="selectLabel" for="lcm-default-mode">Default content</label>
+                    <select is="emby-select" id="lcm-default-mode" data-lcm-lib="global">
+                        <option value="Art">Official artwork</option>
+                        <option value="Scenes">Scenes from the videos</option>
+                    </select>
+                </div>
+                <div class="selectContainer">
+                    <label class="selectLabel" for="lcm-format">Primary image</label>
+                    <select is="emby-select" id="lcm-format" data-lcm-lib="global">
+                        <option value="Animated">Animated</option>
+                        <option value="Still">Still (first frame)</option>
+                    </select>
+                </div>
+                <button is="emby-button" type="button" id="lcm-generate-all" class="raised button-submit emby-button"
+                        data-lcm-lib="global"><span>Generate all now</span></button>
+            </div>
+
+            <div id="lcm-status" class="lcm-status" role="status" aria-live="polite"></div>
+            <div id="lcm-grid" class="lcm-grid" role="list" aria-label="Libraries"></div>
+
+            <section id="lcm-editor" class="lcm-editor" hidden aria-labelledby="lcm-editor-title">
+                <div class="lcm-editor-head">
+                    <h2 id="lcm-editor-title">Edit</h2>
+                    <button is="emby-button" type="button" id="lcm-editor-close" class="raised emby-button">
+                        <span>Close</span>
+                    </button>
+                </div>
+                <div id="lcm-editor-status" class="lcm-status" role="status" aria-live="polite"></div>
+
+                <div class="lcm-columns">
+                    <div class="lcm-col">
+                        <div class="lcm-cover" id="lcm-preview"><img alt=""><span class="lcm-empty"></span></div>
+                        <div class="lcm-btns">
+                            <button is="emby-button" type="button" id="lcm-ed-generate"
+                                    class="raised button-submit emby-button" data-lcm-generate="">
+                                <span>Generate now</span>
+                            </button>
+                            <button is="emby-button" type="button" id="lcm-ed-pin" class="raised emby-button">
+                                <span>Pin this cover</span>
+                            </button>
+                            <button is="emby-button" type="button" id="lcm-ed-upload" class="raised emby-button">
+                                <span>Upload cover</span>
+                            </button>
+                        </div>
+                        <div id="lcm-ed-meta" class="lcm-muted lcm-small"></div>
+                        <h3 class="lcm-heading">History (choose one to restore and pin it)</h3>
+                        <div id="lcm-history" class="lcm-history"></div>
+                    </div>
+
+                    <div class="lcm-col" id="lcm-settings">
+                        <p id="lcm-upload-only" class="lcm-muted" hidden>
+                            The plugin makes covers for video libraries only. You can upload a cover for this library
+                            and pin it.
+                        </p>
+                        <div id="lcm-render-settings">
+                            <h3 class="lcm-heading">Content</h3>
+                            <div class="lcm-seg" role="group" aria-label="Content mode" id="lcm-mode">
+                                <button type="button" data-mode="Art" aria-pressed="false">Art</button>
+                                <button type="button" data-mode="Scenes" aria-pressed="false">Scenes</button>
+                                <button type="button" data-mode="Manual" aria-pressed="false">Manual</button>
+                            </div>
+                            <div id="lcm-mode-help" class="lcm-muted lcm-small"></div>
+                            <div class="lcm-muted lcm-small">Free slots draw their titles from:</div>
+                            <label class="checkboxContainer">
+                                <input is="emby-checkbox" type="checkbox" id="lcm-pool-watched">
+                                <span>Most watched</span>
+                            </label>
+                            <label class="checkboxContainer">
+                                <input is="emby-checkbox" type="checkbox" id="lcm-pool-rated"><span>Top rated</span>
+                            </label>
+                            <label class="checkboxContainer">
+                                <input is="emby-checkbox" type="checkbox" id="lcm-pool-recent">
+                                <span>Recently added</span>
+                            </label>
+                            <div class="lcm-row">
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="lcm-slot-count">Slots</label>
+                                    <input is="emby-input" type="number" id="lcm-slot-count" min="1" max="5" step="1">
+                                </div>
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="lcm-length">
+                                        Length (seconds)
+                                    </label>
+                                    <input is="emby-input" type="number" id="lcm-length" min="2" max="12" step="1">
+                                </div>
+                            </div>
+                            <label class="checkboxContainer">
+                                <input is="emby-checkbox" type="checkbox" id="lcm-fade"><span>Fade between slots</span>
+                            </label>
+
+                            <h3 class="lcm-heading">Style</h3>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="lcm-title">Name on the cover</label>
+                                <input is="emby-input" type="text" id="lcm-title" maxlength="100">
+                                <div class="fieldDescription">Leave it empty to use the library's name.</div>
+                            </div>
+                            <div class="lcm-row">
+                                <div class="selectContainer lcm-wide">
+                                    <label class="selectLabel" for="lcm-font">Font</label>
+                                    <select is="emby-select" id="lcm-font"></select>
+                                </div>
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="lcm-text-size">Text size</label>
+                                    <input is="emby-input" type="number" id="lcm-text-size" min="40" max="200" step="1">
+                                </div>
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="lcm-darken">Darken (%)</label>
+                                    <input is="emby-input" type="number" id="lcm-darken" min="0" max="70" step="1">
+                                </div>
+                            </div>
+                            <label class="checkboxContainer">
+                                <input is="emby-checkbox" type="checkbox" id="lcm-frame">
+                                <span>Rounded white frame</span>
+                            </label>
+                            <label class="checkboxContainer">
+                                <input is="emby-checkbox" type="checkbox" id="lcm-shadow"><span>Text shadow</span>
+                            </label>
+
+                            <h3 class="lcm-heading">Renewal</h3>
+                            <div class="lcm-row">
+                                <div class="selectContainer">
+                                    <label class="selectLabel" for="lcm-renew">Renew this cover</label>
+                                    <select is="emby-select" id="lcm-renew">
+                                        <option value="weekly">With the scheduled task</option>
+                                        <option value="own">Every few days</option>
+                                    </select>
+                                </div>
+                                <div class="inputContainer" id="lcm-renew-days-box">
+                                    <label class="inputLabel inputLabelUnfocused" for="lcm-renew-days">
+                                        Days between renewals
+                                    </label>
+                                    <input is="emby-input" type="number" id="lcm-renew-days" min="1" max="365" step="1">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="lcm-slots-section">
+                    <h3 class="lcm-heading">Slots</h3>
+                    <p class="lcm-muted lcm-small">
+                        Lock a title to keep it in the cover on every renewal. Free slots get new picks each time.
+                        Saving changed slots builds a new cover right away.
+                    </p>
+                    <div id="lcm-slots" class="lcm-slots"></div>
+                </div>
+
+                <div class="lcm-btns lcm-save-bar">
+                    <button is="emby-button" type="button" id="lcm-save" class="raised button-submit emby-button">
+                        <span>Save changes</span>
+                    </button>
+                    <button is="emby-button" type="button" id="lcm-undo" class="raised emby-button">
+                        <span>Undo changes</span>
+                    </button>
+                </div>
+            </section>
+
+            <dialog id="lcm-upload-dialog" aria-labelledby="lcm-upload-title">
+                <form method="dialog" id="lcm-upload-form">
+                    <h3 id="lcm-upload-title">Upload a cover</h3>
+                    <p>
+                        A WebP (animated or still), PNG, JPEG or GIF of up to 20 MB. It becomes the library's cover,
+                        and the library leaves the rotation until you choose Back to automatic.
+                    </p>
+                    <p class="lcm-warning">
+                        The plugin can't check what an uploaded cover shows against your users' parental controls.
+                    </p>
+                    <p>
+                        <label for="lcm-upload-file">Picture</label>
+                        <input type="file" id="lcm-upload-file" accept="image/webp,image/png,image/jpeg,image/gif">
+                    </p>
+                    <p id="lcm-upload-error" class="lcm-error" role="alert"></p>
+                    <div class="lcm-btns">
+                        <button is="emby-button" type="button" id="lcm-upload-send"
+                                class="raised button-submit emby-button"><span>Upload</span></button>
+                        <button is="emby-button" type="button" id="lcm-upload-cancel" class="raised emby-button">
+                            <span>Cancel</span>
+                        </button>
+                    </div>
+                </form>
+            </dialog>
+        </div>
+    </div>
+</div>
