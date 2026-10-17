@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
@@ -9,14 +11,25 @@ using Jellyfin.Plugin.LibraryCoverMaker;
 using Jellyfin.Plugin.LibraryCoverMaker.Covers;
 using Jellyfin.Plugin.LibraryCoverMaker.Model;
 using Jellyfin.Plugin.LibraryCoverMaker.Rendering;
+using Jellyfin.Plugin.LibraryCoverMaker.Scheduling;
 using Jellyfin.Plugin.LibraryCoverMaker.Selection;
 using Jellyfin.Plugin.LibraryCoverMaker.Sources;
 using Jellyfin.Plugin.LibraryCoverMaker.Storage;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Controller.MediaSegments;
+using MediaBrowser.Controller.Chapters;
+using MediaBrowser.Controller.Providers;
+using MediaBrowser.Controller.Session;
+using MediaBrowser.Controller.Trickplay;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
-using MediaBrowser.Model.Entities;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using SkiaSharp;
 using Xunit;
@@ -366,6 +379,164 @@ public sealed class CoverRulesTests : IDisposable
         var later = _store.Load(Library);
         Assert.Equal(original.Id, later.Original!.Id);
         Assert.Equal(2, later.History.Count);
+    }
+
+    [Fact]
+    public async Task Original_is_marked_automatic_when_it_was_the_collage()
+    {
+        Titles(TitleA);
+        _images.SetCurrent("collage.jpg", [9], automatic: true);
+
+        await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
+
+        Assert.True(_store.Load(Library).Original!.Automatic);
+    }
+
+    [Fact]
+    public async Task Original_is_not_marked_automatic_when_an_admin_set_it()
+    {
+        Titles(TitleA);
+        _images.SetCurrent("admin.jpg", [8], automatic: false);
+
+        await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
+
+        Assert.False(_store.Load(Library).Original!.Automatic);
+    }
+
+    [Fact]
+    public void State_written_before_the_automatic_flag_still_loads()
+    {
+        _store.Update(Library, state => state.Original = new CoverRecord
+        {
+            Id = Guid.NewGuid(),
+            CreatedAt = DateTimeOffset.UtcNow,
+            Origin = CoverOrigin.Original,
+            Automatic = true,
+        });
+        var path = Assert.Single(Directory.GetFiles(_root, "state.json", SearchOption.AllDirectories));
+        var json = File.ReadAllText(path);
+        Assert.Contains("\"Automatic\"", json);
+        var node = JsonNode.Parse(json)!;
+        Assert.True(node["Original"]!.AsObject().Remove("Automatic"));
+        File.WriteAllText(path, node.ToJsonString());
+
+        var original = Assert.IsType<CoverRecord>(_store.Load(Library).Original);
+        Assert.False(original.Automatic);
+    }
+
+    [Fact]
+    public void Registrator_registers_every_service_the_plugin_builds_on_as_a_singleton()
+    {
+        var services = new ServiceCollection();
+        PluginServiceRegistrator.AddServices(services);
+
+        Type[] expected =
+        [
+            typeof(CoverStore), typeof(FfmpegRunner), typeof(OverlayRenderer), typeof(LibraryAudience),
+            typeof(ArtworkSource), typeof(SceneFinder), typeof(CoverApplier), typeof(CoverBuilder),
+            typeof(RenderQueue),
+        ];
+        foreach (var type in expected)
+        {
+            var descriptor = Assert.Single(services, d => d.ServiceType == type);
+            Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
+        }
+
+        Assert.All(services, d => Assert.Equal(ServiceLifetime.Singleton, d.Lifetime));
+        Assert.Equal(2, services.Count(d => d.ServiceType == typeof(IHostedService)));
+    }
+
+    [Fact]
+    public void A_real_provider_builds_the_plugin_services_and_shares_the_queue()
+    {
+        var root = Directory.CreateTempSubdirectory("registrator-").FullName;
+        try
+        {
+            var services = new ServiceCollection();
+            services.AddSingleton<IApplicationPaths>(new Paths(root));
+            services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
+            services.AddSingleton(Fake<ILibraryManager>(
+                call => call.Name == "GetVirtualFolders" ? new List<VirtualFolderInfo>() : null));
+            services.AddSingleton(Fake<ISessionManager>(
+                call => call.Name == "get_Sessions" ? Array.Empty<SessionInfo>() : null));
+            services.AddSingleton(Fake<ITrickplayManager>());
+            services.AddSingleton(Fake<IMediaSegmentManager>());
+            services.AddSingleton(Fake<IChapterManager>());
+            services.AddSingleton(Fake<IMediaEncoder>());
+            services.AddSingleton(Fake<IUserManager>());
+            services.AddSingleton(Fake<IUserDataManager>());
+            services.AddSingleton(Fake<IProviderManager>());
+            PluginServiceRegistrator.AddServices(services);
+
+            using var provider = services.BuildServiceProvider(
+                new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
+
+            // The factories: a mistyped dependency in either fails here.
+            Assert.NotNull(provider.GetRequiredService<SceneFinder>());
+            var queue = provider.GetRequiredService<RenderQueue>();
+            Assert.NotNull(provider.GetRequiredService<CoverBuilder>());
+            Assert.Same(provider.GetRequiredService<CoverApplier>(), provider.GetRequiredService<CoverApplier>());
+            Assert.NotNull(ActivatorUtilities.CreateInstance<RefreshCoversTask>(provider));
+
+            var hosted = provider.GetServices<IHostedService>().ToList();
+            Assert.Equal(2, hosted.Count);
+            Assert.Same(queue, hosted[0]);
+            Assert.IsType<RenewalScheduler>(hosted[1]);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_library_is_gone_only_when_the_list_and_a_direct_lookup_both_say_so()
+    {
+        var id = Guid.NewGuid();
+        List<VirtualFolderInfo> folders = new();
+        BaseItem? item = null;
+        var libraries = Fake<ILibraryManager>(call => call.Name switch
+        {
+            "GetVirtualFolders" => folders,
+            "GetItemById" => item,
+            _ => null,
+        });
+
+        Assert.False(PluginServiceRegistrator.LibraryExists(libraries, id));
+
+        item = new Movie();
+        Assert.True(PluginServiceRegistrator.LibraryExists(libraries, id));
+
+        item = null;
+        folders = [new VirtualFolderInfo { ItemId = id.ToString("N") }];
+        Assert.True(PluginServiceRegistrator.LibraryExists(libraries, id));
+    }
+
+    // A stand-in for a Jellyfin interface: every call answers with the default of its return type, unless the handler
+    // gives an answer.
+    private static T Fake<T>(Func<MethodInfo, object?>? answer = null)
+        where T : class
+    {
+        var proxy = DispatchProxy.Create<T, FakeProxy>();
+        ((FakeProxy)(object)proxy).Answer = answer;
+        return proxy;
+    }
+
+    private class FakeProxy : DispatchProxy
+    {
+        public Func<MethodInfo, object?>? Answer { get; set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            var given = Answer?.Invoke(targetMethod!);
+            if (given is not null)
+            {
+                return given;
+            }
+
+            var type = targetMethod!.ReturnType;
+            return type == typeof(void) || !type.IsValueType ? null : Activator.CreateInstance(type);
+        }
     }
 
     [Fact]

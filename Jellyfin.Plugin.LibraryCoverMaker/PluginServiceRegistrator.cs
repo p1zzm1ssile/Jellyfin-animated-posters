@@ -1,0 +1,79 @@
+using System;
+using System.Linq;
+using Jellyfin.Plugin.LibraryCoverMaker.Covers;
+using Jellyfin.Plugin.LibraryCoverMaker.Rendering;
+using Jellyfin.Plugin.LibraryCoverMaker.Scheduling;
+using Jellyfin.Plugin.LibraryCoverMaker.Selection;
+using Jellyfin.Plugin.LibraryCoverMaker.Sources;
+using Jellyfin.Plugin.LibraryCoverMaker.Storage;
+using MediaBrowser.Controller;
+using MediaBrowser.Controller.Chapters;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaSegments;
+using MediaBrowser.Controller.Plugins;
+using MediaBrowser.Controller.Session;
+using MediaBrowser.Controller.Trickplay;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace Jellyfin.Plugin.LibraryCoverMaker;
+
+/// <summary>
+/// Registers the plugin's services with Jellyfin. Every service is a singleton: the store, the applier (its set of
+/// libraries being applied lives in memory) and the render queue hold state that all callers must share.
+/// </summary>
+public class PluginServiceRegistrator : IPluginServiceRegistrator
+{
+    /// <inheritdoc />
+    public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost) =>
+        AddServices(serviceCollection);
+
+    /// <summary>Adds the plugin's own services to <paramref name="services"/>, not Jellyfin's.</summary>
+    internal static void AddServices(IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddSingleton<CoverStore>();
+        services.AddSingleton<FfmpegRunner>();
+        services.AddSingleton<OverlayRenderer>();
+        services.AddSingleton<LibraryAudience>();
+        services.AddSingleton<ArtworkSource>();
+        services.AddSingleton(provider => new SceneFinder(
+            provider.GetRequiredService<ITrickplayManager>(),
+            provider.GetRequiredService<IMediaSegmentManager>(),
+            provider.GetRequiredService<IChapterManager>(),
+            provider.GetRequiredService<ILibraryManager>(),
+            provider.GetRequiredService<FfmpegRunner>(),
+            provider.GetRequiredService<ILogger<SceneFinder>>(),
+            provider.GetRequiredService<CoverStore>().TempFolder));
+        services.AddSingleton<CoverApplier>();
+        services.AddSingleton<CoverBuilder>();
+        services.AddSingleton(CreateQueue);
+
+        // The queue and the scheduler are hosted services, and the queue is also what the scheduled task and the
+        // scheduler hand libraries to: the hosted service resolves to the same instance.
+        services.AddSingleton<IHostedService>(provider => provider.GetRequiredService<RenderQueue>());
+        services.AddSingleton<IHostedService, RenewalScheduler>();
+    }
+
+    private static RenderQueue CreateQueue(IServiceProvider provider)
+    {
+        var builder = provider.GetRequiredService<CoverBuilder>();
+        var sessions = provider.GetRequiredService<ISessionManager>();
+        var libraries = provider.GetRequiredService<ILibraryManager>();
+        return new RenderQueue(
+            builder.BuildAsync,
+            () => sessions.Sessions.Any(session => session.NowPlayingItem is not null && !session.PlayState.IsPaused),
+            libraryId => LibraryExists(libraries, libraryId),
+            provider.GetRequiredService<CoverStore>(),
+            provider.GetRequiredService<ILogger<RenderQueue>>());
+    }
+
+    // The queue forgets a library's covers and history when this says no, so a transient answer while Jellyfin is
+    // still loading must not count: the library is gone only when both the list of libraries and a direct lookup
+    // say so.
+    internal static bool LibraryExists(ILibraryManager libraries, Guid libraryId) =>
+        libraries.GetVirtualFolders().Any(folder => Guid.TryParse(folder.ItemId, out var id) && id == libraryId)
+        || libraries.GetItemById(libraryId) is not null;
+}
