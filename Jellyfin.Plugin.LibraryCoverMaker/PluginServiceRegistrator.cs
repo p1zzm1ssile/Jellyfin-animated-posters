@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Jellyfin.Data.Events.Users;
 using Jellyfin.Plugin.LibraryCoverMaker.Covers;
 using Jellyfin.Plugin.LibraryCoverMaker.Rendering;
 using Jellyfin.Plugin.LibraryCoverMaker.Scheduling;
@@ -8,6 +9,7 @@ using Jellyfin.Plugin.LibraryCoverMaker.Sources;
 using Jellyfin.Plugin.LibraryCoverMaker.Storage;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Chapters;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Controller.Plugins;
@@ -21,7 +23,9 @@ namespace Jellyfin.Plugin.LibraryCoverMaker;
 
 /// <summary>
 /// Registers the plugin's services with Jellyfin. Every service is a singleton: the store, the applier (its set of
-/// libraries being applied lives in memory) and the render queue hold state that all callers must share.
+/// libraries being applied lives in memory) and the render queue hold state that all callers must share. The one
+/// exception are the event consumers, which are scoped like Jellyfin's own: Jellyfin resolves them in a new scope for
+/// every event it publishes, and they hold no state.
 /// </summary>
 public class PluginServiceRegistrator : IPluginServiceRegistrator
 {
@@ -55,6 +59,11 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // scheduler hand libraries to: the hosted service resolves to the same instance.
         services.AddSingleton<IHostedService>(provider => provider.GetRequiredService<RenderQueue>());
         services.AddSingleton<IHostedService, RenewalScheduler>();
+        services.AddSingleton<IHostedService, PrimaryImageWatcher>();
+
+        // Jellyfin finds the consumers of its events in the container: a user created, or a user's policy saved.
+        services.AddScoped<IEventConsumer<UserUpdatedEventArgs>, AudienceChangeConsumer>();
+        services.AddScoped<IEventConsumer<UserCreatedEventArgs>, AudienceChangeConsumer>();
     }
 
     private static RenderQueue CreateQueue(IServiceProvider provider)
