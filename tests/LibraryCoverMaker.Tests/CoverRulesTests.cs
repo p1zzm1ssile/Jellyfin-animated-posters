@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.LibraryCoverMaker;
+using Jellyfin.Plugin.LibraryCoverMaker.Api;
 using Jellyfin.Plugin.LibraryCoverMaker.Covers;
 using Jellyfin.Plugin.LibraryCoverMaker.Model;
 using Jellyfin.Plugin.LibraryCoverMaker.Rendering;
@@ -25,6 +26,7 @@ using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Controller.Trickplay;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.IO;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.Extensions.DependencyInjection;
@@ -466,6 +468,7 @@ public sealed class CoverRulesTests : IDisposable
             services.AddSingleton(Fake<IUserManager>());
             services.AddSingleton(Fake<IUserDataManager>());
             services.AddSingleton(Fake<IProviderManager>());
+            services.AddSingleton(Fake<IFileSystem>());
             PluginServiceRegistrator.AddServices(services);
 
             using var provider = services.BuildServiceProvider(
@@ -477,6 +480,7 @@ public sealed class CoverRulesTests : IDisposable
             Assert.NotNull(provider.GetRequiredService<CoverBuilder>());
             Assert.Same(provider.GetRequiredService<CoverApplier>(), provider.GetRequiredService<CoverApplier>());
             Assert.NotNull(ActivatorUtilities.CreateInstance<RefreshCoversTask>(provider));
+            Assert.NotNull(ActivatorUtilities.CreateInstance<CoversController>(provider));
 
             var hosted = provider.GetServices<IHostedService>().ToList();
             Assert.Equal(2, hosted.Count);
@@ -1331,6 +1335,30 @@ public sealed class CoverRulesTests : IDisposable
     }
 
     [Fact]
+    public async Task Reapply_to_configured_reads_the_switch_as_each_library_is_applied_so_the_last_change_wins()
+    {
+        Titles(TitleA);
+        await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
+        _config.PrimaryFormat = PrimaryFormat.Still;
+        Task? second = null;
+
+        // The admin flips the switch back while the first run is applying the library: the second run has to wait for
+        // the first and then leave the library in the format the configuration has now.
+        _images.OnPersist = () =>
+        {
+            if (second is null)
+            {
+                _config.PrimaryFormat = PrimaryFormat.Animated;
+                second = _applier.ReapplyAllToConfiguredAsync(CancellationToken.None);
+            }
+        };
+        await _applier.ReapplyAllToConfiguredAsync(CancellationToken.None);
+        await second!;
+
+        Assert.Equal(["image/webp", "image/jpeg", "image/webp"], _images.Saved.Select(saved => saved.MimeType));
+    }
+
+    [Fact]
     public async Task Reapply_switches_generated_covers_to_the_other_version()
     {
         Titles(TitleA);
@@ -1539,6 +1567,9 @@ public sealed class CoverRulesTests : IDisposable
             OnPersist?.Invoke();
             return Task.CompletedTask;
         }
+
+        // The tests that use this fake never return a library to the collage (CoversApiTests does).
+        public Task ResetToAutomaticAsync() => throw new NotSupportedException();
     }
 
     /// <summary>Counts what is logged at warning level or above.</summary>
