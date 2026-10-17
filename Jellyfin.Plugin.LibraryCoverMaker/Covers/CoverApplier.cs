@@ -10,6 +10,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Net;
 using Microsoft.Extensions.Logging;
 
@@ -24,8 +25,10 @@ namespace Jellyfin.Plugin.LibraryCoverMaker.Covers;
 /// Everything here changes a library's state, so it runs inside <see cref="CoverStore.UpdateAsync"/>. A change that
 /// applies a cover goes through an <see cref="ApplyRun"/> (<see cref="StartApply"/>): it marks the library as applying
 /// from the apply until the state that records the new image is saved, and deletes the files of covers that drop out
-/// of the history only once that save went through. <see cref="SaveUploadAsync"/> and <see cref="ReapplyAllAsync"/>
-/// use one themselves; the builder and the admin API do the same around their own changes.
+/// of the history only once that save went through. <see cref="SaveUploadAsync"/> and the reapply methods
+/// (<see cref="ReapplyAllAsync"/>, <see cref="ReapplyAllToConfiguredAsync"/>) start one for each library they change;
+/// the reapplies also run one at a time, behind a gate shared by all appliers, so two switches of the Primary format
+/// in a row never interleave. The builder and the admin API use an ApplyRun around their own changes.
 /// </para>
 /// <para>
 /// Saving a Primary image makes Jellyfin raise <c>ItemUpdated</c> for the library, which is also what an admin's
@@ -52,6 +55,9 @@ namespace Jellyfin.Plugin.LibraryCoverMaker.Covers;
 /// </remarks>
 public sealed class CoverApplier
 {
+    // Reapplies run one at a time, across all appliers: two switches in a row must not interleave per library.
+    private static readonly SemaphoreSlim ReapplyGate = new(1, 1);
+
     // The buffer of the file streams that read and write cover files.
     private const int BufferSize = 81920;
 
@@ -74,9 +80,10 @@ public sealed class CoverApplier
     public CoverApplier(
         IProviderManager providers,
         ILibraryManager library,
+        IFileSystem fileSystem,
         CoverStore store,
         ILogger<CoverApplier> log)
-        : this(new JellyfinLibraryImages(providers, library), store, log, Settings)
+        : this(new JellyfinLibraryImages(providers, library, fileSystem), store, log, Settings)
     {
     }
 
@@ -155,7 +162,7 @@ public sealed class CoverApplier
     /// instance is saved, read back and written to the database, as Jellyfin's own upload does.
     /// </remarks>
     /// <exception cref="FileNotFoundException">The cover's file is missing. Nothing was changed.</exception>
-    /// <exception cref="InvalidOperationException">The library no longer exists. Nothing was changed.</exception>
+    /// <exception cref="LibraryGoneException">The library no longer exists. Nothing was changed.</exception>
     /// <exception cref="OperationCanceledException">
     /// Cancelled before the image was touched. Nothing was changed.
     /// </exception>
@@ -173,7 +180,7 @@ public sealed class CoverApplier
             ?? throw new FileNotFoundException($"The file of cover {record.Id:N} is missing.");
         ct.ThrowIfCancellationRequested();
         var library = _images.Find(libraryId)
-            ?? throw new InvalidOperationException($"Library {libraryId:N} no longer exists.");
+            ?? throw new LibraryGoneException(libraryId);
 
         Mark(libraryId);
         try
@@ -226,6 +233,49 @@ public sealed class CoverApplier
         finally
         {
             Unmark(libraryId);
+        }
+    }
+
+    /// <summary>
+    /// Gives the library back to Jellyfin's automatic collage: deletes its Primary image, has Jellyfin refresh the
+    /// library so that it draws a collage again, and makes <see cref="LibraryCoverState.Original"/> the current cover.
+    /// For restoring an original that was the automatic collage, which cannot be put back as a file (a copy would be
+    /// a picture Jellyfin never redraws). Called from inside <see cref="CoverStore.UpdateAsync"/> with the state it
+    /// loaded; the caller saves it. The library is marked as applying for the length of this call, and the path the
+    /// refresh gave the new image is recorded before the mark ends, so neither the deletion nor the refresh looks like
+    /// an upload made in Jellyfin's Edit images dialog.
+    /// </summary>
+    /// <exception cref="LibraryGoneException">The library no longer exists.</exception>
+    /// <exception cref="InvalidOperationException">The state has no original.</exception>
+    /// <exception cref="OperationCanceledException">Cancelled before the image was touched.</exception>
+    public Task ReturnToAutomaticAsync(LibraryCoverState state, CancellationToken ct) =>
+        ReturnToAutomaticAsync(state, ct, touched: null);
+
+    // touched runs right before the library's image is first changed, so that a run can tell a failure that left the
+    // library as it was from one that did not.
+    private async Task ReturnToAutomaticAsync(LibraryCoverState state, CancellationToken ct, Action? touched)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        var original = state.Original
+            ?? throw new InvalidOperationException($"Library {state.LibraryId:N} has no original image to return to.");
+        ct.ThrowIfCancellationRequested();
+        var library = _images.Find(state.LibraryId)
+            ?? throw new LibraryGoneException(state.LibraryId);
+
+        Mark(state.LibraryId);
+        try
+        {
+            touched?.Invoke();
+            await library.ResetToAutomaticAsync().ConfigureAwait(false);
+            var applied = library.Primary();
+            state.AppliedPrimaryPath = applied?.Path;
+            state.AppliedPrimaryModified = applied?.Modified;
+            state.CurrentCoverId = original.Id;
+        }
+        finally
+        {
+            Unmark(state.LibraryId);
         }
     }
 
@@ -444,7 +494,30 @@ public sealed class CoverApplier
     /// and originals have one version and are left as they are, and so are libraries Jellyfin no longer has. A library
     /// that fails is logged and the others go on.
     /// </summary>
-    public async Task ReapplyAllAsync(PrimaryFormat format, CancellationToken ct)
+    public Task ReapplyAllAsync(PrimaryFormat format, CancellationToken ct) => ReapplyCoreAsync(() => format, ct);
+
+    /// <summary>
+    /// <see cref="ReapplyAllAsync"/> for the version the configuration asks for, read again as each library is
+    /// applied. Runs one at a time: when the switch is flipped again while a run is going, the next run waits for
+    /// it and then converges every library on the configuration as it is by then, so the last change wins.
+    /// </summary>
+    public Task ReapplyAllToConfiguredAsync(CancellationToken ct) =>
+        ReapplyCoreAsync(() => _config().PrimaryFormat, ct);
+
+    private async Task ReapplyCoreAsync(Func<PrimaryFormat> formatNow, CancellationToken ct)
+    {
+        await ReapplyGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await ReapplyEachAsync(formatNow, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            ReapplyGate.Release();
+        }
+    }
+
+    private async Task ReapplyEachAsync(Func<PrimaryFormat> formatNow, CancellationToken ct)
     {
         var config = _config();
         foreach (var libraryId in _store.KnownLibraries())
@@ -459,6 +532,7 @@ public sealed class CoverApplier
             }
 
             using var run = StartApply(libraryId);
+            var format = formatNow();
             try
             {
                 await _store.UpdateAsync(
@@ -468,6 +542,7 @@ public sealed class CoverApplier
                         var current = state.History.Find(cover => cover.Id == state.CurrentCoverId);
                         if (current is { Origin: CoverOrigin.Generated })
                         {
+                            format = formatNow();
                             await run.ApplyAsync(state, current, format, token).ConfigureAwait(false);
                         }
                     },
@@ -745,6 +820,25 @@ public sealed class CoverApplier
         }
 
         /// <summary>
+        /// <see cref="CoverApplier.ReturnToAutomaticAsync"/>, with the mark held until the run ends. Inside the
+        /// change only.
+        /// </summary>
+        public async Task ReturnToAutomaticAsync(LibraryCoverState state, CancellationToken ct)
+        {
+            ArgumentNullException.ThrowIfNull(state);
+            ct.ThrowIfCancellationRequested();
+            if (!_marked)
+            {
+                _applier.Mark(_libraryId);
+                _marked = true;
+            }
+
+            // Applied from the moment the image is touched: a refresh that fails after the delete leaves the library
+            // without an image, and Unsaved must say so at error level.
+            await _applier.ReturnToAutomaticAsync(state, ct, () => Applied = true).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// <see cref="CoverApplier.AddToHistory"/>; the dropped covers' files wait for <see cref="Saved"/>.
         /// </summary>
         public void AddToHistory(LibraryCoverState state, CoverRecord record) =>
@@ -820,17 +914,27 @@ internal interface ILibraryImage
 
     /// <summary>Writes the library's item to Jellyfin's database, as Jellyfin's own upload does after saving.</summary>
     Task PersistAsync();
+
+    /// <summary>
+    /// Deletes the library's Primary image and has Jellyfin refresh the library until it has drawn its automatic
+    /// collage again.
+    /// </summary>
+    Task ResetToAutomaticAsync();
 }
 
 /// <summary>Libraries' Primary images through Jellyfin's library and provider managers.</summary>
-internal sealed class JellyfinLibraryImages(IProviderManager providers, ILibraryManager library) : ILibraryImages
+internal sealed class JellyfinLibraryImages(
+    IProviderManager providers,
+    ILibraryManager library,
+    IFileSystem fileSystem) : ILibraryImages
 {
     public ILibraryImage? Find(Guid libraryId) =>
-        library.GetItemById(libraryId) is CollectionFolder folder ? new Item(providers, folder) : null;
+        library.GetItemById(libraryId) is CollectionFolder folder ? new Item(providers, folder, fileSystem) : null;
 
     // The one instance is saved, read back and written to the database, as ImageController.SetItemImage does: a
     // second lookup could get a fresh copy from the database without the new image.
-    private sealed class Item(IProviderManager providers, CollectionFolder folder) : ILibraryImage
+    private sealed class Item(IProviderManager providers, CollectionFolder folder, IFileSystem fileSystem)
+        : ILibraryImage
     {
         public PrimaryImage? Primary()
         {
@@ -850,5 +954,23 @@ internal sealed class JellyfinLibraryImages(IProviderManager providers, ILibrary
         // This raises ItemUpdated, synchronously, from LibraryManager.UpdateItemsAsync.
         public Task PersistAsync() =>
             folder.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, CancellationToken.None);
+
+        // The same two steps as an admin's DELETE of the Primary image and a default refresh (what the device check
+        // verified brings the collage back). The refresh is awaited, not queued, so that the new image's path is
+        // known when it returns. It runs to its end once the image is deleted: a library must not stay without one.
+        public async Task ResetToAutomaticAsync()
+        {
+            await folder.DeleteImageAsync(ImageType.Primary, 0).ConfigureAwait(false);
+            var options = new MetadataRefreshOptions(new DirectoryService(fileSystem));
+            await folder.RefreshMetadata(options, CancellationToken.None).ConfigureAwait(false);
+        }
     }
+}
+
+/// <summary>The library the plugin was asked to change is not in Jellyfin (any more).</summary>
+public sealed class LibraryGoneException(Guid libraryId)
+    : InvalidOperationException($"Library {libraryId:N} no longer exists.")
+{
+    /// <summary>The library that is gone.</summary>
+    public Guid LibraryId { get; } = libraryId;
 }
