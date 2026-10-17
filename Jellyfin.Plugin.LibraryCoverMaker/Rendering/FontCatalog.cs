@@ -8,14 +8,23 @@ using SkiaSharp.HarfBuzz;
 namespace Jellyfin.Plugin.LibraryCoverMaker.Rendering;
 
 /// <summary>
-/// The fonts bundled with the plugin, the choice of a font for a piece of text (the family a cover asks for when it
-/// has every glyph, otherwise a system font that has them), and the shaping of that text with HarfBuzz.
+/// The font families a cover can use (Jellyfin's own and the fonts bundled with the plugin), the choice of a font for
+/// a piece of text (the family a cover asks for when it has every glyph, otherwise a system font that has them), and
+/// the shaping of that text with HarfBuzz.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Each font is embedded in the plugin assembly together with its SIL Open Font License 1.1 text, which has to travel
-/// with it. Nothing is fetched at run time. A typeface is loaded on first use and then shared: it belongs to this class
-/// (or, for a fallback, to the system font manager), so callers must not dispose it.
+/// The Jellyfin family is the typeface Jellyfin 12.2 writes a library's name in on the library images it draws
+/// itself. <c>SkiaEncoder.InitializeTypefaces</c> (src/Jellyfin.Drawing.Skia, tag v12.2) asks for it as
+/// <c>SKTypeface.FromFamilyName("sans-serif", Bold, Normal, Upright)</c>, and when that gives nothing, for the bold
+/// upright system font that has a lowercase a. The catalog asks the same way, so on a server the request goes through
+/// the same Fontconfig to the same file: DejaVu Sans Bold in the jellyfin/jellyfin:12.2 image. Nothing is bundled for
+/// it.
+/// </para>
+/// <para>
+/// Each bundled font is embedded in the plugin assembly together with its SIL Open Font License 1.1 text, which has to
+/// travel with it. Nothing is fetched at run time. A typeface is loaded on first use and then shared: it belongs to
+/// this class (or, for a fallback, to the system font manager), so callers must not dispose it.
 /// </para>
 /// <para>
 /// Provenance. All five come from the google/fonts repository at commit 47d54ca1ebb14fd864695f1d39dc734f39017c33
@@ -36,7 +45,10 @@ public static class FontCatalog
     // The ratio is explained on BaselineBelowMiddle.
     private sealed record BundledFont(string Family, string File, float BaselineBelowMiddle);
 
-    // The page's order. The first is the default font: it is what an unknown family name gets.
+    /// <summary>The family of Jellyfin's own library images. It is the default font: an unknown name gets it.</summary>
+    public const string JellyfinFamily = "Jellyfin";
+
+    // The page's order, after the Jellyfin family.
     private static readonly BundledFont[] Bundled =
     [
         new("Bodoni Moda", "BodoniModa-Bold.ttf", 0.2377f),
@@ -53,28 +65,34 @@ public static class FontCatalog
     // do too; a fallback typeface can be collected, and takes its shaper with it.
     private static readonly ConditionalWeakTable<SKTypeface, SKShaper> Shapers = new();
 
-    /// <summary>The bundled families, in the order the cover page lists its fonts. The first is the default.</summary>
+    /// <summary>
+    /// The families, in the order the cover page lists its fonts: Jellyfin, the default, then the bundled ones.
+    /// </summary>
     public static IReadOnlyList<string> Families { get; } = Array.AsReadOnly(
-        Array.ConvertAll(Bundled, font => font.Family));
+        [JellyfinFamily, .. Array.ConvertAll(Bundled, font => font.Family)]);
 
     /// <summary>
-    /// The typeface of a bundled family. The name is matched ignoring case; a name that is unknown, blank or missing
-    /// gets the default family, Bodoni Moda, instead of an error, so a cover is still drawn when its settings name a
-    /// font that is gone.
+    /// Whether text in <paramref name="family"/> is drawn with Jellyfin's typeface: for the Jellyfin family, and for
+    /// a name that is unknown, blank or missing, which <see cref="Get"/> gives the default family.
+    /// </summary>
+    public static bool IsJellyfin(string? family) => Find(family) is null;
+
+    /// <summary>
+    /// The typeface of a family. The name is matched ignoring case; a name that is unknown, blank or missing gets the
+    /// default family, Jellyfin, instead of an error, so a cover is still drawn when its settings name a font that is
+    /// gone.
     /// </summary>
     public static SKTypeface Get(string? family)
     {
-        var font = Array.Find(
-            Bundled,
-            candidate => string.Equals(candidate.Family, family, StringComparison.OrdinalIgnoreCase))
-            ?? Bundled[0];
+        var font = Find(family);
+        var key = font?.Family ?? JellyfinFamily;
 
         lock (Gate)
         {
-            if (!Loaded.TryGetValue(font.Family, out var typeface))
+            if (!Loaded.TryGetValue(key, out var typeface))
             {
-                typeface = Load(font.File);
-                Loaded.Add(font.Family, typeface);
+                typeface = font is null ? LoadJellyfin() : Load(font.File);
+                Loaded.Add(key, typeface);
             }
 
             return typeface;
@@ -146,6 +164,9 @@ public static class FontCatalog
     /// </summary>
     /// <remarks>
     /// <para>
+    /// The Jellyfin family puts its title on a line of its own (see <c>OverlayRenderer</c>), so it never needs this.
+    /// </para>
+    /// <para>
     /// The five bundled fonts have the ratio fixed, to four decimals, which moves a title by 0.004 pixel at most at 80
     /// pixels. The values are what the rule gives for the ascent and descent that FreeType reads from the fonts (their
     /// hhea metrics), and are within 0.0001 of what Chrome 155 measured: 0.2378 for Bodoni Moda, 0.3118 for Cover
@@ -181,6 +202,26 @@ public static class FontCatalog
         var descent = metrics.Descent;
         return (ascent - descent) / (2 * (ascent + descent));
     }
+
+    private static BundledFont? Find(string? family) =>
+        Array.Find(Bundled, candidate => string.Equals(candidate.Family, family, StringComparison.OrdinalIgnoreCase));
+
+    // Asks for the typeface the way Jellyfin's SkiaEncoder does. Skia's own default typeface is a last resort for a
+    // system with no font at all, where Jellyfin would draw with no typeface set, which means that same default.
+    private static SKTypeface LoadJellyfin() =>
+        SKTypeface.FromFamilyName(
+            "sans-serif",
+            SKFontStyleWeight.Bold,
+            SKFontStyleWidth.Normal,
+            SKFontStyleSlant.Upright)
+        ?? SKFontManager.Default.MatchCharacter(
+            null,
+            SKFontStyleWeight.Bold,
+            SKFontStyleWidth.Normal,
+            SKFontStyleSlant.Upright,
+            null,
+            'a')
+        ?? SKTypeface.Default;
 
     private static SKTypeface Load(string file)
     {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.LibraryCoverMaker.Model;
 
@@ -43,23 +44,32 @@ public enum PrimaryFormat
     Still
 }
 
-/// <summary>How a library's cover looks and which titles feed it. Each library has its own.</summary>
+/// <summary>
+/// How a library's cover looks and which titles feed it. Each library has its own. The defaults are the Jellyfin look:
+/// the name written the way Jellyfin writes it on the library images it draws itself, with no frame.
+/// </summary>
 public class CoverStyle
 {
     /// <summary>Text on the cover. Empty means the library's own name.</summary>
     public string Title { get; set; } = string.Empty;
 
-    /// <summary>Font family of the text, one of the families bundled with the plugin.</summary>
-    public string Font { get; set; } = "Bodoni Moda";
+    /// <summary>
+    /// Font family of the text: Jellyfin (the typeface and layout of Jellyfin's own library images) or one of the
+    /// families bundled with the plugin. The names are <c>FontCatalog.Families</c>.
+    /// </summary>
+    public string Font { get; set; } = "Jellyfin";
 
-    /// <summary>Size of the text (40 to 200).</summary>
-    public int TextSize { get; set; } = 120;
+    /// <summary>
+    /// Size of the text (40 to 200) on a cover 960 pixels wide, scaled with the width. 112 is the size Jellyfin
+    /// writes a library's name at on its 960 pixel wide library images.
+    /// </summary>
+    public int TextSize { get; set; } = 112;
 
     /// <summary>How much the picture is darkened, in percent (0 to 70).</summary>
     public int Darken { get; set; } = 15;
 
     /// <summary>Whether the cover has the rounded white frame.</summary>
-    public bool Frame { get; set; } = true;
+    public bool Frame { get; set; }
 
     /// <summary>Whether the text casts a shadow.</summary>
     public bool Shadow { get; set; } = true;
@@ -128,10 +138,18 @@ public class CoverRecord
 }
 
 /// <summary>Everything the plugin keeps about one library's cover.</summary>
-public class LibraryCoverState
+public class LibraryCoverState : IJsonOnDeserializing, IJsonOnDeserialized
 {
     /// <summary>How many slots a cover has.</summary>
     public const int MaxSlots = 5;
+
+    /// <summary>The defaults a new style gets: 2, the Jellyfin look. See <see cref="StyleDefaults"/>.</summary>
+    public const int CurrentStyleDefaults = 2;
+
+    // The first look, the default style before the Jellyfin look: Bodoni Moda at 120 in the rounded white frame.
+    private const int FirstLook = 1;
+    private const string FirstLookFont = "Bodoni Moda";
+    private const int FirstLookTextSize = 120;
 
     /// <summary>The Jellyfin library this state belongs to.</summary>
     public Guid LibraryId { get; set; }
@@ -144,6 +162,16 @@ public class LibraryCoverState
     /// pinned or restored a cover, or the library's saved settings could not be read.
     /// </summary>
     public bool Pinned { get; set; }
+
+    /// <summary>
+    /// Which defaults <see cref="Style"/> was made under: 1 for the first look, which a state saved before this field
+    /// existed has, and <see cref="CurrentStyleDefaults"/> since. A state read with 1 whose style still has the first
+    /// look's font, text size and frame (Bodoni Moda, 120, frame on) gets the Jellyfin look's instead, keeping the
+    /// rest of its style: it is taken for a style nobody changed, since one that was set to exactly those values
+    /// cannot be told apart from it. Read, the state holds <see cref="CurrentStyleDefaults"/>, so once it is saved
+    /// its style is never moved again.
+    /// </summary>
+    public int StyleDefaults { get; set; } = CurrentStyleDefaults;
 
     /// <summary>How the library's cover looks and which titles feed it.</summary>
     public CoverStyle Style { get; set; } = new();
@@ -203,4 +231,29 @@ public class LibraryCoverState
     /// When the Primary image file was last modified, as Jellyfin recorded it after the plugin applied a cover.
     /// </summary>
     public DateTime? AppliedPrimaryModified { get; set; }
+
+    // Called before the stored properties are read: a file without StyleDefaults was saved under the first look.
+    void IJsonOnDeserializing.OnDeserializing() => StyleDefaults = FirstLook;
+
+    // Called once the stored properties are read. See StyleDefaults.
+    void IJsonOnDeserialized.OnDeserialized()
+    {
+        if (StyleDefaults >= CurrentStyleDefaults)
+        {
+            return;
+        }
+
+        var style = Style;
+        if (string.Equals(style.Font, FirstLookFont, StringComparison.OrdinalIgnoreCase)
+            && style.TextSize == FirstLookTextSize
+            && style.Frame)
+        {
+            var jellyfin = new CoverStyle();
+            style.Font = jellyfin.Font;
+            style.TextSize = jellyfin.TextSize;
+            style.Frame = jellyfin.Frame;
+        }
+
+        StyleDefaults = CurrentStyleDefaults;
+    }
 }

@@ -61,8 +61,10 @@ renewed. From a card or the editor below the grid you can:
   frame (or one of the title's backdrops in Art mode), and lock the slot. Locked slots keep your choice and free
   slots get new picks on every render.
 - **Back to automatic**, which unpins the library.
-- Change the style: the name on the cover (default: the library name in uppercase), font, text size, darkening,
-  rounded frame, text shadow, length (2 to 12 seconds) and fade.
+- Change the style: the name on the cover (default: the library name), font, text size, darkening, rounded frame,
+  text shadow, length (2 to 12 seconds) and fade. The default font, Jellyfin, writes the name the way Jellyfin
+  writes it on the library images it draws itself, in the name's own case and with no frame; the bundled fonts write
+  it in uppercase, as the original page did.
 
 Changing a library's Primary image in Jellyfin's own "Edit images" dialog counts as an upload and pins the library.
 
@@ -116,11 +118,13 @@ code to show a cover, remove it: the cover is now the library's Primary image an
 
 ## Fonts
 
-Five fonts ship with the plugin, with their license texts (in `Jellyfin.Plugin.LibraryCoverMaker/Rendering/Fonts/`
-and in the release zip), all under the SIL Open Font License: Bodoni Moda, Cover Serif, Cinzel, Bebas Neue and
-Oswald. Cover Serif is a static ExtraBold instance of Playfair Display by Claus Eggers Sorensen, under the SIL Open
-Font License, renamed as the license requires for modified versions. Nothing is fetched from Google Fonts or any
-other service while the plugin runs.
+The default font, Jellyfin, is not shipped: it is the typeface Jellyfin asks the server's font configuration for when
+it draws a library's image (bold sans-serif, DejaVu Sans Bold in the `jellyfin/jellyfin:12.2` image), asked for the
+same way. Five fonts ship with the plugin, with their license texts (in
+`Jellyfin.Plugin.LibraryCoverMaker/Rendering/Fonts/` and in the release zip), all under the SIL Open Font License:
+Bodoni Moda, Cover Serif, Cinzel, Bebas Neue and Oswald. Cover Serif is a static ExtraBold instance of Playfair
+Display by Claus Eggers Sorensen, under the SIL Open Font License, renamed as the license requires for modified
+versions. Nothing is fetched from Google Fonts or any other service while the plugin runs.
 
 ## License
 
