@@ -6,11 +6,12 @@ A Jellyfin plugin that keeps an animated cover on every library. The covers are 
 library's Primary image, and made again on a schedule, so the home screen changes over time without anyone
 uploading anything.
 
-The project and its look (the rounded white frame, the big serif name, the darkened picture) are by p1zzm1ssile
-(Graham). It started as a page in a container and is now a plugin.
+The project and its original look (the rounded white frame, the big serif name, the darkened picture) are by
+p1zzm1ssile (Graham). It started as a page in a container and is now a plugin; the original look is still one click
+away in the style settings.
 
-The plugin needs Jellyfin 12. It is still being built: the sections below describe what it is designed to do, and
-the client table says what has been checked on real devices (nothing yet).
+The plugin needs Jellyfin 12. It runs on a household server with 22 plugins installed; the client table below says
+what has been checked on real devices.
 
 ## Install
 
@@ -42,7 +43,10 @@ No release is published yet, so the catalog stays empty until the first tagged v
   little letterboxing and no cut inside the clip. Clips never come from an intro, outro, recap, preview or
   commercial that Jellyfin has marked, nor from the first or last tenth of a title. HDR videos are tone mapped so
   they are not darker than the rest. For TV shows, episodes from the first season are preferred.
-- **Manual**: you uploaded or pinned a cover, and the library leaves the rotation.
+- **Manual**: covers are only made when you ask (Generate now or a change to the slots), never on a schedule.
+
+Pinning is separate from the mode: a pinned library keeps its cover whatever the mode, until you go back to
+automatic.
 
 A library with no artwork, such as home videos, uses Scenes by itself.
 
@@ -73,7 +77,7 @@ Changing a library's Primary image in Jellyfin's own "Edit images" dialog counts
 A cover only shows titles that every user who can see the library is allowed to see under their parental controls
 (maximum rating, unrated items, blocked tags). When a user is created, gets access to a library, or has their
 parental controls changed, the covers that user can see are checked again, and one that breaks the rule is made
-again right away, with the reason on its card. A pinned or restored cover that the plugin composed is replaced the
+queued at once, with the reason on its card. A pinned or restored cover that the plugin composed is replaced the
 same way, and a locked title that breaks the rule is unlocked. Covers you uploaded are left alone.
 
 When fewer titles pass the rule than there are slots, the cover uses fewer slots. With no title at all it shows
@@ -90,17 +94,20 @@ The plugin answers the image requests for an animated library cover itself, so J
 
 ## Clients
 
-How each client shows an animated Primary image is checked on real devices before release. Until then every
-client is listed as not checked.
+Checked on 2026-10-17 on a Jellyfin 12.2 server, with an animated cover in the plugin's own format (partial
+frames with transparency) and a still JPEG of the same cover:
 
 | Client | Animated cover | Still cover |
 | --- | --- | --- |
-| Web | not checked yet | not checked yet |
-| Android TV and Fire TV | not checked yet | not checked yet |
+| Web (browser) | animates | shown |
+| LG webOS app | animates | shown |
+| Jellyfin Media Player (PC) | animates | shown |
+| Jellyfin for Android (phone) | animates | shown |
+| Fire TV | not checked yet | not checked yet |
 | Samsung Tizen | not checked yet | not checked yet |
-| Android phone | not checked yet | not checked yet |
 | iOS | not checked yet | not checked yet |
-| Others | not checked yet | not checked yet |
+
+Use the still version for any client that does not animate.
 
 ## Known limits
 
