@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Plugin.LibraryCoverMaker.Covers;
 using Jellyfin.Plugin.LibraryCoverMaker.Rendering;
 using Jellyfin.Plugin.LibraryCoverMaker.Sources;
 using MediaBrowser.Controller.Chapters;
@@ -17,6 +18,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.MediaSegments;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Trickplay;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
@@ -900,7 +902,7 @@ public sealed class SceneFinderTests : IDisposable
     [LinuxFact]
     public void By_default_the_probe_is_the_default_video_stream_Jellyfin_knows()
     {
-        // Video.GetDefaultVideoStream asks the media source manager that BaseItem keeps in a static property.
+        // The stored streams come from the media source manager that BaseItem keeps in a static property.
         var stream = new MediaStream { Type = MediaStreamType.Video, Index = 0, Width = 1920, Height = 1080 };
         var manager = Stub<IMediaSourceManager>(new()
         {
@@ -929,6 +931,84 @@ public sealed class SceneFinderTests : IDisposable
             BaseItem.MediaSourceManager = previous;
         }
     }
+
+    [LinuxFact]
+    public void A_video_read_back_from_the_database_has_no_default_index_and_is_probed_by_its_first_video_stream()
+    {
+        // Jellyfin sets DefaultVideoStreamIndex while it probes a file and does not save it, so after a restart every
+        // item has none, and Video.GetDefaultVideoStream says null. The streams themselves are saved.
+        var video = MakeVideo();
+        var cover = new MediaStream { Type = MediaStreamType.EmbeddedImage, Index = 3, Width = 600, Height = 900 };
+        var audio = new MediaStream { Type = MediaStreamType.Audio, Index = 1 };
+        var second = new MediaStream { Type = MediaStreamType.Video, Index = 2, Width = 1920, Height = 1080 };
+        var first = new MediaStream { Type = MediaStreamType.Video, Index = 0, Width = 3840, Height = 2160 };
+        MediaStreamQuery? asked = null;
+        var manager = Stub<IMediaSourceManager>(new()
+        {
+            ["GetMediaStreams"] = args =>
+            {
+                asked = (MediaStreamQuery)args[0]!;
+                return (IReadOnlyList<MediaStream>)new[] { cover, audio, second, first };
+            },
+        });
+
+        var previous = BaseItem.MediaSourceManager;
+        BaseItem.MediaSourceManager = manager;
+        try
+        {
+            Assert.Null(video.DefaultVideoStreamIndex);
+            Assert.Same(first, DefaultProbe()(video));
+            Assert.Equal(video.Id, Some(asked).ItemId);
+
+            // When the item does know its default stream, that one is used.
+            video.DefaultVideoStreamIndex = 2;
+            Assert.Same(second, DefaultProbe()(video));
+        }
+        finally
+        {
+            BaseItem.MediaSourceManager = previous;
+        }
+    }
+
+    [LinuxFact]
+    public async Task A_letterboxed_video_read_back_from_the_database_gets_its_crop()
+    {
+        // What production had: a 2.39:1 film in a 3840x2160 file, its item loaded again after a restart of Jellyfin.
+        SetTrickplay([0, 0, 0.9, 0, 0, 0, 0, 0, 0, 0]);
+        SetClip(null, ClipText(box: (0, 3839, 276, 1883), width: 3840, height: 2160));
+        var stream = new MediaStream { Type = MediaStreamType.Video, Index = 0, Width = 3840, Height = 2160 };
+        var manager = Stub<IMediaSourceManager>(new()
+        {
+            ["GetMediaStreams"] = _ => (IReadOnlyList<MediaStream>)new[] { stream },
+        });
+
+        var previous = BaseItem.MediaSourceManager;
+        BaseItem.MediaSourceManager = manager;
+        try
+        {
+            var finder = Finder();
+            finder.ProbeVideo = DefaultProbe();
+            var choice = await finder.FindStartAsync(MakeVideo(runtimeSeconds: 120), Clip, CancellationToken.None);
+
+            Assert.Equal(new CropRect(0, 276, 3840, 1608), Assert.NotNull(Some(choice).Crop));
+        }
+        finally
+        {
+            BaseItem.MediaSourceManager = previous;
+        }
+    }
+
+    // The probe a finder has when nothing replaces it.
+    internal static Func<Video, MediaStream?> DefaultProbe() =>
+        new SceneFinder(
+            Stub<ITrickplayManager>(new()),
+            Stub<IMediaSegmentManager>(new()),
+            Stub<IChapterManager>(new()),
+            Stub<ILibraryManager>(new()),
+            new FfmpegRunner(
+                DispatchProxy.Create<IMediaEncoder, FfmpegRunnerTests.EncoderStub>(),
+                NullLogger<FfmpegRunner>.Instance),
+            NullLogger<SceneFinder>.Instance).ProbeVideo;
 
     [LinuxFact]
     public async Task The_graph_reads_the_stream_that_the_size_came_from()
@@ -1222,6 +1302,7 @@ public sealed class DockerFactAttribute : FactAttribute
 /// with <c>docker run --rm</c>): clips made on the spot with known bars and known cuts, so that what the finder says
 /// about them can be told from what is true, and a cover rendered with the crop shows no bars.
 /// </summary>
+[Collection(TestCollections.BaseItemStatics)]
 public sealed class SceneFinderFfmpegTests : IClassFixture<SceneFinderFfmpegTests.Clips>
 {
     private const double Clip = 4;
@@ -1335,6 +1416,23 @@ public sealed class SceneFinderFfmpegTests : IClassFixture<SceneFinderFfmpegTest
 
             // Ten seconds of video that the library believes last 24: a clip that runs past the end.
             await Make("short.mp4", ["-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=25:duration=10", .. h264]);
+
+            // The two production files that kept their bars, a third of their size: Godzilla vs. Kong, 2.39:1 in a
+            // 10-bit PQ file (276 of 2160 rows each side), and The Handmaid's Tale, 2:1 in a 10-bit bt709 file (120).
+            const string Wide =
+                "drawbox=y=0:w=iw:h=92:color=black:t=fill,drawbox=y=628:w=iw:h=92:color=black:t=fill";
+            const string Two =
+                "drawbox=y=0:w=iw:h=40:color=black:t=fill,drawbox=y=680:w=iw:h=40:color=black:t=fill";
+            await Make(
+                "wide-pq.mkv",
+                "-f", "lavfi", "-i", Source, "-vf", Wide + ",format=yuv420p10le", "-c:v", "libx265",
+                "-x265-params", "log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc",
+                "-pix_fmt", "yuv420p10le");
+            await Make(
+                "two-sdr10.mkv",
+                "-f", "lavfi", "-i", Source, "-vf", Two + ",format=yuv420p10le", "-c:v", "libx265",
+                "-x265-params", "log-level=error:colorprim=bt709:transfer=bt709:colormatrix=bt709",
+                "-pix_fmt", "yuv420p10le");
         }
 
         public Task DisposeAsync()
@@ -1588,6 +1686,65 @@ public sealed class SceneFinderFfmpegTests : IClassFixture<SceneFinderFfmpegTest
     }
 
     [DockerFact]
+    public Task A_10_bit_pq_film_whose_item_was_read_back_from_the_database_renders_without_its_bars() =>
+        RendersWithoutBarsAsync("wide-pq.mkv", "smpte2084", "bt2020", hdr: true, bar: 92);
+
+    [DockerFact]
+    public Task A_10_bit_sdr_episode_whose_item_was_read_back_from_the_database_renders_without_its_bars() =>
+        RendersWithoutBarsAsync("two-sdr10.mkv", "bt709", "bt709", hdr: false, bar: 40);
+
+    // The item has no DefaultVideoStreamIndex (Jellyfin does not save it), only its stored streams, as every item has
+    // after a restart. Everything comes from the plugin's own probe: the crop and whether to tone map.
+    private async Task RendersWithoutBarsAsync(
+        string clip,
+        string transfer,
+        string primaries,
+        bool hdr,
+        int bar)
+    {
+        var stream = new MediaStream
+        {
+            Type = MediaStreamType.Video,
+            Index = 0,
+            Width = 1280,
+            Height = 720,
+            BitDepth = 10,
+            ColorTransfer = transfer,
+            ColorPrimaries = primaries,
+        };
+        var manager = SceneFinderTests.Stub<IMediaSourceManager>(new()
+        {
+            ["GetMediaStreams"] = _ => (IReadOnlyList<MediaStream>)new[] { stream },
+        });
+        var previous = BaseItem.MediaSourceManager;
+        BaseItem.MediaSourceManager = manager;
+        try
+        {
+            var video = VideoOf(clip);
+            var finder = Finder((8, 0.9));
+            finder.ProbeVideo = SceneFinderTests.DefaultProbe();
+            var seconds = CoverRenderer.SlotSeconds(12, 5, fade: true, fps: 12);
+            var found = await finder.FindStartAsync(video, seconds, CancellationToken.None);
+            var choice = Assert.IsType<SceneChoice>(found);
+
+            // The same stream the cover source asks for whether the clip is tone mapped.
+            Assert.Equal(hdr, JellyfinCoverSource.IsHdr(finder.VideoStream(video)));
+
+            Assert.Equal(new CropRect(0, bar, 1280, 720 - (2 * bar)), choice.Crop);
+            var plain = await RenderStillAsync(clip, choice.StartSeconds, crop: null, $"plain-{clip}", hdr);
+            var cropped = await RenderStillAsync(clip, choice.StartSeconds, choice.Crop, $"cropped-{clip}", hdr);
+
+            // The control: without the crop the bars are bar / 2 rows of 360 at the top and as many at the bottom.
+            Assert.InRange(BlackRows(plain), bar - 4, bar + 4);
+            Assert.Equal(0, BlackRows(cropped));
+        }
+        finally
+        {
+            BaseItem.MediaSourceManager = previous;
+        }
+    }
+
+    [DockerFact]
     public async Task A_cover_of_the_longest_length_renders_to_the_planned_30_seconds()
     {
         // Five clips with fades make 30 s (the renderer refuses a file whose animation is not that long to the frame).
@@ -1612,7 +1769,12 @@ public sealed class SceneFinderFfmpegTests : IClassFixture<SceneFinderFfmpegTest
     }
 
     // Renders one clip of 2 s as a cover with a see-through overlay and returns the still of its first frame.
-    private async Task<SKBitmap> RenderStillAsync(string clip, double start, CropRect? crop, string name)
+    private async Task<SKBitmap> RenderStillAsync(
+        string clip,
+        double start,
+        CropRect? crop,
+        string name,
+        bool hdr = false)
     {
         var overlay = _clips.Path("overlay.png");
         if (!File.Exists(overlay))
@@ -1623,7 +1785,7 @@ public sealed class SceneFinderFfmpegTests : IClassFixture<SceneFinderFfmpegTest
         }
 
         var plan = new RenderPlan(
-            [new SlotInput(SlotKind.Video, _clips.Path(clip), start, 2, false, crop)],
+            [new SlotInput(SlotKind.Video, _clips.Path(clip), start, 2, hdr, crop)],
             overlay,
             640,
             360,

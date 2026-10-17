@@ -12,6 +12,7 @@ using MediaBrowser.Controller.Chapters;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaSegments;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Trickplay;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
@@ -148,8 +149,7 @@ public sealed class SceneFinder
 
     // What Jellyfin knows of the video stream of a file, which is where the size and the rotation come from.
     // A seam for the tests: they have no library to ask.
-    internal Func<Video, MediaStream?> ProbeVideo { get; set; } =
-        video => BaseItem.MediaSourceManager is null ? null : video.GetDefaultVideoStream();
+    internal Func<Video, MediaStream?> ProbeVideo { get; set; } = StoredVideoStream;
 
     private enum Source
     {
@@ -323,6 +323,51 @@ public sealed class SceneFinder
         return null;
     }
 
+    /// <summary>
+    /// The video stream of <paramref name="video"/> as Jellyfin stored it when it probed the file: the one at the
+    /// item's default video stream index when the item knows it, else the first video stream of the file. Null without
+    /// a media source manager (the tests) or without a video stream.
+    /// </summary>
+    /// <remarks>
+    /// Not <see cref="Video.GetDefaultVideoStream"/>: Jellyfin sets the default index while it probes a file but does
+    /// not save it in its database, so an item read back from it (every item after a restart) has none, and that
+    /// method then returns null. Without the stream a cover lost the crop of the bars and the tone mapping of HDR.
+    /// </remarks>
+    /// <param name="video">The video.</param>
+    internal static MediaStream? StoredVideoStream(Video video)
+    {
+        var sources = BaseItem.MediaSourceManager;
+        if (sources is null)
+        {
+            return null;
+        }
+
+        var streams = sources
+            .GetMediaStreams(new MediaStreamQuery { ItemId = video.Id, Type = MediaStreamType.Video })
+            .Where(stream => stream.Type == MediaStreamType.Video && !stream.IsExternal)
+            .OrderBy(stream => stream.Index)
+            .ToList();
+        return streams.Find(stream => stream.Index == video.DefaultVideoStreamIndex) ?? streams.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// What the probe says of the video stream of <paramref name="video"/>, or null when it says nothing or cannot be
+    /// read: the stream the crop is measured in and whose range says whether a clip is tone mapped.
+    /// </summary>
+    /// <param name="video">The video.</param>
+    internal MediaStream? VideoStream(Video video)
+    {
+        try
+        {
+            return ProbeVideo(video);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _log.LogDebug(ex, "Library Cover Maker: the video stream of {Title} could not be read", video.Name);
+            return null;
+        }
+    }
+
     // Only the caller's own token is a cancellation; an OperationCanceledException from inside a manager, such as a
     // timeout of its own, is a failure for this title.
     private static bool IsCancellation(Exception ex, CancellationToken ct) =>
@@ -402,22 +447,12 @@ public sealed class SceneFinder
         return cutWidth >= MinBarShare || cutHeight >= MinBarShare ? new CropRect(left, top, width, height) : null;
     }
 
-    // What the probe says of the default video stream: its index in the file, so that the filter graph reads that
+    // What the probe says of the video stream: its index in the file, so that the filter graph reads that
     // stream and no other, and the size ffmpeg's filters see: the stored size, swapped when the video is turned a
     // quarter, because ffmpeg turns it before the filter graph. Null parts when Jellyfin has not probed the file.
     private (int? Index, (int Width, int Height)? Size) Probe(Video video)
     {
-        MediaStream? stream;
-        try
-        {
-            stream = ProbeVideo(video);
-        }
-        catch (InvalidOperationException ex)
-        {
-            _log.LogDebug(ex, "Library Cover Maker: the video stream of {Title} could not be read", video.Name);
-            return (null, null);
-        }
-
+        var stream = VideoStream(video);
         if (stream is null)
         {
             return (null, null);
