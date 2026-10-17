@@ -393,6 +393,9 @@ public sealed class CoverRendererTests
     [InlineData(2, true, 2.0)]
     [InlineData(5, true, 12.0)]
     [InlineData(4, false, 3.0)]
+    [InlineData(1, true, 30.0)]
+    [InlineData(5, true, 30.0)]
+    [InlineData(3, false, 30.0)]
     public void The_planned_length_is_the_length_the_slots_were_made_for(int slots, bool fade, double length)
     {
         // The frames of the slots add up to more than the cover: the fades are on screen twice.

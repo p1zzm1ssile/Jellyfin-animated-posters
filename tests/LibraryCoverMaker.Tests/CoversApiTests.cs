@@ -41,7 +41,7 @@ public sealed class CoversApiTests : IDisposable
     [InlineData(nameof(StyleUpdateDto.Darken), -1)]
     [InlineData(nameof(StyleUpdateDto.Darken), 71)]
     [InlineData(nameof(StyleUpdateDto.LengthSeconds), 1)]
-    [InlineData(nameof(StyleUpdateDto.LengthSeconds), 13)]
+    [InlineData(nameof(StyleUpdateDto.LengthSeconds), 31)]
     [InlineData(nameof(StyleUpdateDto.SlotCount), 0)]
     [InlineData(nameof(StyleUpdateDto.SlotCount), 6)]
     public void Out_of_range_style_values_are_refused_by_name(string field, int value)
@@ -61,7 +61,7 @@ public sealed class CoversApiTests : IDisposable
     [InlineData(nameof(StyleUpdateDto.Darken), 0)]
     [InlineData(nameof(StyleUpdateDto.Darken), 70)]
     [InlineData(nameof(StyleUpdateDto.LengthSeconds), 2)]
-    [InlineData(nameof(StyleUpdateDto.LengthSeconds), 12)]
+    [InlineData(nameof(StyleUpdateDto.LengthSeconds), 30)]
     [InlineData(nameof(StyleUpdateDto.SlotCount), 1)]
     [InlineData(nameof(StyleUpdateDto.SlotCount), 5)]
     public void Style_values_at_the_edges_are_accepted(string field, int value)

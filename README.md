@@ -68,7 +68,7 @@ renewed. From a card or the editor below the grid you can:
   slots get new picks on every render.
 - **Back to automatic**, which unpins the library.
 - Change the style: the name on the cover (default: the library name), font, text size, darkening, rounded frame,
-  text shadow, length (2 to 12 seconds) and fade. The default font, Jellyfin, writes the name the way Jellyfin
+  text shadow, length (2 to 30 seconds) and fade. The default font, Jellyfin, writes the name the way Jellyfin
   writes it on the library images it draws itself, in the name's own case and with no frame; the bundled fonts write
   it in uppercase, as the original page did.
 
@@ -116,6 +116,11 @@ Use the still version for any client that does not animate.
 - A title that mixes text directions or scripts is shaped as one run.
 - A script with no installed font shows boxes. In the stock `jellyfin/jellyfin:12.2` image no Thai or
   Devanagari font is installed, and those titles were observed rendering as boxes.
+- A cover is 640 by 360 at 12 frames a second, and its size grows with its length. Measured with jellyfin-ffmpeg 8.1.3
+  on synthetic clips: a 30 second cover (the longest) came to 2.4 MB with one slot and 3.5 MB with five slots, and
+  took 7 to 10 s of processor time; a noisy 720p source gave 2.6 MB and 23 s. The default of 6 seconds is a fifth of
+  that. Real film grain was not measured, so a long cover of grainy video may be larger. A title shorter than 37.5
+  seconds cannot hold the one 30 second clip of a single-slot cover and is replaced by another title.
 - The plugin needs Jellyfin 12. Older versions are not supported.
 - The unit tests run on Linux only: they need Fontconfig and fonts with Cyrillic, Hebrew and Arabic.
 

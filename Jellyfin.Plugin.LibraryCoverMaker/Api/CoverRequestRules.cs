@@ -32,7 +32,7 @@ internal static class CoverRequestRules
     private const int MinDarken = 0;
     private const int MaxDarken = 70;
     private const int MinLength = 2;
-    private const int MaxLength = 12;
+    private const int MaxLength = 30;
     private const int MinWidth = 320;
     private const int MaxWidth = 1920;
 
