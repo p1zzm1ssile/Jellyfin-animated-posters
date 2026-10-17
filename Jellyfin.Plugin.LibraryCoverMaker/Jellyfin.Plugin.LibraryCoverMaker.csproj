@@ -36,8 +36,9 @@
     <!-- The DLL carries the fonts and their license texts; release.yml also puts the OFL texts in the zip.
          The resource name is "Fonts/" plus the file name, whatever the namespace or folder. -->
     <EmbeddedResource Include="Rendering\Fonts\*" LogicalName="Fonts/%(Filename)%(Extension)" />
-    <!-- The Dashboard page and its script, served by Jellyfin under the names GetPages gives them. -->
-    <EmbeddedResource Include="Web\*" />
+    <!-- The Dashboard page and its script, served by Jellyfin under the names GetPages gives them. Only those: the
+         image filter's source shares the folder. -->
+    <EmbeddedResource Include="Web\*.html;Web\*.js" />
   </ItemGroup>
 
   <ItemGroup>

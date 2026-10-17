@@ -103,10 +103,14 @@ public sealed class FfmpegRunner
     /// <see cref="NotCompleted"/>.
     /// </para>
     /// </remarks>
-    /// <param name="args">What follows the standard options. Each file's own options go with it, such as <see cref="ThreadLimit"/>.</param>
+    /// <param name="args">What follows the standard options. Each file's own options go with it, such as
+    /// <see cref="ThreadLimit"/>.</param>
     /// <param name="stallTimeout">How long ffmpeg may show no sign of life. Positive.</param>
     /// <param name="ct">Cancels the run.</param>
-    public async Task<(int Exit, string Errors)> RunAsync(IReadOnlyList<string> args, TimeSpan stallTimeout, CancellationToken ct)
+    public async Task<(int Exit, string Errors)> RunAsync(
+        IReadOnlyList<string> args,
+        TimeSpan stallTimeout,
+        CancellationToken ct)
     {
         var run = await RunCoreAsync(args, captureOutput: false, stallTimeout, ct).ConfigureAwait(false);
         return (run.Exit, run.Errors);
@@ -116,7 +120,10 @@ public sealed class FfmpegRunner
     /// Runs ffmpeg as <see cref="RunAsync"/> does and returns, besides the end of what it wrote, the very first line
     /// it wrote: with more than 200 lines the tail has dropped it, and it is the line that says why ffmpeg failed.
     /// </summary>
-    internal Task<RunResult> RunDetailedAsync(IReadOnlyList<string> args, TimeSpan stallTimeout, CancellationToken ct) =>
+    internal Task<RunResult> RunDetailedAsync(
+        IReadOnlyList<string> args,
+        TimeSpan stallTimeout,
+        CancellationToken ct) =>
         RunCoreAsync(args, captureOutput: false, stallTimeout, ct);
 
     /// <summary>
@@ -139,7 +146,10 @@ public sealed class FfmpegRunner
 
         if (!double.IsFinite(atSeconds) || atSeconds < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(atSeconds), atSeconds, "The moment must be 0 seconds or later.");
+            throw new ArgumentOutOfRangeException(
+                nameof(atSeconds),
+                atSeconds,
+                "The moment must be 0 seconds or later.");
         }
 
         ArgumentOutOfRangeException.ThrowIfLessThan(width, 16);
@@ -152,9 +162,11 @@ public sealed class FfmpegRunner
 
         // reset_sar: a clip with non-square pixels (DVD, DV) is as wide on screen as its sample aspect ratio says,
         // and the height that -2 works out has to follow that, or the picture comes out thin.
-        args.AddRange(["-frames:v", "1", "-an", "-sn", "-vf", string.Create(CultureInfo.InvariantCulture, $"scale={width}:-2:reset_sar=1")]);
+        var scale = string.Create(CultureInfo.InvariantCulture, $"scale={width}:-2:reset_sar=1");
+        args.AddRange(["-frames:v", "1", "-an", "-sn", "-vf", scale]);
 
-        // Without it a 10-bit video gives a 16-bit PNG, five times the size, which not every decoder reads the same way.
+        // Without it a 10-bit video gives a 16-bit PNG, five times the size, which not every decoder reads the same
+        // way.
         args.AddRange(["-pix_fmt", "rgb24"]);
         args.AddRange(["-f", "image2pipe", "-c:v", "png", "pipe:1"]);
 
@@ -185,12 +197,18 @@ public sealed class FfmpegRunner
     // 1 minute, 15 minutes, 1 second, 0.3 seconds.
     private static string Describe(TimeSpan span)
     {
-        var (value, unit) = span >= TimeSpan.FromMinutes(1) ? (span.TotalMinutes, "minute") : (span.TotalSeconds, "second");
+        var (value, unit) = span >= TimeSpan.FromMinutes(1)
+            ? (span.TotalMinutes, "minute")
+            : (span.TotalSeconds, "second");
         var text = value.ToString("0.#", CultureInfo.InvariantCulture);
         return text == "1" ? $"1 {unit}" : $"{text} {unit}s";
     }
 
-    private async Task<RunResult> RunCoreAsync(IReadOnlyList<string> args, bool captureOutput, TimeSpan stallTimeout, CancellationToken ct)
+    private async Task<RunResult> RunCoreAsync(
+        IReadOnlyList<string> args,
+        bool captureOutput,
+        TimeSpan stallTimeout,
+        CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(stallTimeout, TimeSpan.Zero);
@@ -199,7 +217,11 @@ public sealed class FfmpegRunner
         var ffmpeg = _encoder.EncoderPath;
         if (string.IsNullOrWhiteSpace(ffmpeg))
         {
-            return new RunResult(NotCompleted, "Jellyfin has no ffmpeg configured, so there is no ffmpeg to run.", string.Empty, []);
+            return new RunResult(
+                NotCompleted,
+                "Jellyfin has no ffmpeg configured, so there is no ffmpeg to run.",
+                string.Empty,
+                []);
         }
 
         var info = new ProcessStartInfo(ffmpeg)
@@ -227,7 +249,11 @@ public sealed class FfmpegRunner
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
         {
-            return new RunResult(NotCompleted, $"ffmpeg could not be started ({ffmpeg}): {ex.Message}", string.Empty, []);
+            return new RunResult(
+                NotCompleted,
+                $"ffmpeg could not be started ({ffmpeg}): {ex.Message}",
+                string.Empty,
+                []);
         }
 
         // Joining the arguments costs something on every run: it is not done for a message nobody has asked for.
@@ -249,14 +275,16 @@ public sealed class FfmpegRunner
             }
         }));
         var stdoutRead = captureOutput
-            ? Task.Run(() => DrainAsync(() => process.StandardOutput.BaseStream.CopyToAsync(output, CancellationToken.None)))
+            ? Task.Run(
+                () => DrainAsync(() => process.StandardOutput.BaseStream.CopyToAsync(output, CancellationToken.None)))
             : Task.CompletedTask;
         var pipes = Task.WhenAll(stderrRead, stdoutRead);
 
         var verdict = Verdict.Exited;
         try
         {
-            verdict = await WatchAsync(process, state, stallTimeout, _limits.ProcessorTimeBudget, ct).ConfigureAwait(false);
+            verdict = await WatchAsync(process, state, stallTimeout, _limits.ProcessorTimeBudget, ct)
+                .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -276,11 +304,14 @@ public sealed class FfmpegRunner
         if (verdict == Verdict.Stalled)
         {
             reason = $"ffmpeg showed no sign of life for {Describe(stallTimeout)}, so it was stopped.";
-            _log.LogWarning("Library Cover Maker: ffmpeg showed no sign of life for {Limit}, so it was stopped", Describe(stallTimeout));
+            _log.LogWarning(
+                "Library Cover Maker: ffmpeg showed no sign of life for {Limit}, so it was stopped",
+                Describe(stallTimeout));
         }
         else if (verdict == Verdict.OverBudget)
         {
-            reason = $"ffmpeg used {Describe(_limits.ProcessorTimeBudget)} of processor time without finishing and was stopped.";
+            reason = $"ffmpeg used {Describe(_limits.ProcessorTimeBudget)} of processor time without finishing and was "
+                + "stopped.";
             _log.LogWarning(
                 "Library Cover Maker: ffmpeg used {Budget} of processor time without finishing, so it was stopped",
                 Describe(_limits.ProcessorTimeBudget));
@@ -296,26 +327,42 @@ public sealed class FfmpegRunner
         if (!drained)
         {
             _log.LogDebug(
-                "Library Cover Maker: the output of ffmpeg was still open {Grace} after it ended: something it started holds it",
+                "Library Cover Maker: the output of ffmpeg was still open {Grace} after it ended: something it started "
+                + "holds it",
                 Describe(_limits.StopGrace));
         }
 
         var errors = state.Errors();
         if (verdict != Verdict.Exited)
         {
-            return new RunResult(NotCompleted, errors.Length == 0 ? reason : errors + "\n" + reason, state.FirstLine, []);
+            return new RunResult(
+                NotCompleted,
+                errors.Length == 0 ? reason : errors + "\n" + reason,
+                state.FirstLine,
+                []);
         }
 
         // What was read while the pipes were still open may be half of the output: none is better than half a picture.
-        return new RunResult(process.ExitCode, errors, state.FirstLine, captureOutput && drained ? output.ToArray() : []);
+        return new RunResult(
+            process.ExitCode,
+            errors,
+            state.FirstLine,
+            captureOutput && drained ? output.ToArray() : []);
     }
 
-    // Waits for ffmpeg to end, or says why it has to be stopped: no sign of life for too long, or too much processor time.
-    private static async Task<Verdict> WatchAsync(Process process, RunState state, TimeSpan stallTimeout, TimeSpan budget, CancellationToken ct)
+    // Waits for ffmpeg to end, or says why it has to be stopped: no sign of life for too long, or too much processor
+    // time.
+    private static async Task<Verdict> WatchAsync(
+        Process process,
+        RunState state,
+        TimeSpan stallTimeout,
+        TimeSpan budget,
+        CancellationToken ct)
     {
         // Often enough to stop a stall or an overspend close to its limit, rarely enough to cost nothing.
         var basis = stallTimeout < budget ? stallTimeout : budget;
-        var interval = TimeSpan.FromTicks(Math.Clamp(basis.Ticks / 4, TimeSpan.FromMilliseconds(25).Ticks, TimeSpan.FromSeconds(5).Ticks));
+        var interval = TimeSpan.FromTicks(
+            Math.Clamp(basis.Ticks / 4, TimeSpan.FromMilliseconds(25).Ticks, TimeSpan.FromSeconds(5).Ticks));
         var processorTime = TimeSpan.Zero;
         while (!process.HasExited)
         {
@@ -388,7 +435,8 @@ public sealed class FfmpegRunner
         {
             process.Kill(entireProcessTree: true);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or NotSupportedException or AggregateException)
+        catch (Exception ex) when (
+            ex is InvalidOperationException or Win32Exception or NotSupportedException or AggregateException)
         {
             _log.LogDebug(ex, "Library Cover Maker: ffmpeg was already gone, or could not be stopped");
         }
@@ -396,7 +444,9 @@ public sealed class FfmpegRunner
         await WaitBrieflyAsync(process.WaitForExitAsync(CancellationToken.None)).ConfigureAwait(false);
         if (!process.HasExited)
         {
-            _log.LogWarning("Library Cover Maker: ffmpeg has not exited {Grace} after it was stopped", Describe(_limits.StopGrace));
+            _log.LogWarning(
+                "Library Cover Maker: ffmpeg has not exited {Grace} after it was stopped",
+                Describe(_limits.StopGrace));
         }
     }
 
@@ -423,7 +473,9 @@ public sealed class FfmpegRunner
         }
         catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or NotSupportedException)
         {
-            _log.LogDebug(ex, "Library Cover Maker: could not lower the priority of ffmpeg, so it runs at normal priority");
+            _log.LogDebug(
+                ex,
+                "Library Cover Maker: could not lower the priority of ffmpeg, so it runs at normal priority");
         }
     }
 
@@ -486,13 +538,20 @@ public sealed class FfmpegRunner
     }
 }
 
-/// <summary>What a run of ffmpeg came to: the exit code, the end of its messages, the first one it wrote, and what it wrote to its output.</summary>
+/// <summary>
+/// What a run of ffmpeg came to: the exit code, the end of its messages, the first one it wrote, and what it wrote to
+/// its output.
+/// </summary>
 internal readonly record struct RunResult(int Exit, string Errors, string FirstLine, byte[] Output);
 
-/// <summary>The limits a run of ffmpeg is held to. A real run has the defaults; the tests have limits of milliseconds.</summary>
+/// <summary>
+/// The limits a run of ffmpeg is held to. A real run has the defaults; the tests have limits of milliseconds.
+/// </summary>
 /// <param name="ProcessorTimeBudget">How much processor time a run may use before it is stopped.</param>
-/// <param name="FrameStall">How long reading one frame may show no sign of life: looking at one frame is quick, so a minute is a file that hangs.</param>
-/// <param name="StopGrace">How long to wait for a stopped ffmpeg to exit, and for its pipes to close, before giving up on them.</param>
+/// <param name="FrameStall">How long reading one frame may show no sign of life: looking at one frame is quick, so a
+/// minute is a file that hangs.</param>
+/// <param name="StopGrace">How long to wait for a stopped ffmpeg to exit, and for its pipes to close, before giving up
+/// on them.</param>
 internal sealed record RunnerLimits(TimeSpan ProcessorTimeBudget, TimeSpan FrameStall, TimeSpan StopGrace)
 {
     /// <summary>The limits of a real run.</summary>

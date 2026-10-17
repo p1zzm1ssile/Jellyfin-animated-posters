@@ -10,7 +10,8 @@ namespace Jellyfin.Plugin.LibraryCoverMaker.Sources;
 /// <c>0.30 * exposure + 0.25 * contrast + 0.20 * color + 0.25 * sharpness</c>, each term clamped to [0, 1]:
 /// <list type="bullet">
 /// <item><description>exposure: <c>1 - |b - 0.45| / 0.45</c></description></item>
-/// <item><description>contrast: the standard deviation of luma over the whole copy, divided by 0.25</description></item>
+/// <item><description>contrast: the standard deviation of luma over the whole copy, divided by
+/// 0.25</description></item>
 /// <item><description>color: the mean HSV saturation, <c>(max - min) / max</c> per pixel and 0 for a black one,
 /// divided by 0.5</description></item>
 /// <item><description>sharpness: the variance of the 3x3 Laplacian of luma (centre -4, the four neighbours +1,

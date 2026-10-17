@@ -385,7 +385,7 @@ public sealed class CoverImageFilterTests : IDisposable
     {
         _store.Update(Library, state => state.Pinned = true);
 
-        Assert.True(File.Exists(CoverImageFilter.StatePathOf(_store, Library)));
+        Assert.True(File.Exists(_store.StatePath(Library)));
     }
 
     [Fact]

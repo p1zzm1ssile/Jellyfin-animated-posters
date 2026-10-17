@@ -234,10 +234,18 @@ public sealed class OverlayRendererTests
     public static IEnumerable<object[]> Families => FontCatalog.Families.Select(family => new object[] { family });
 
     // Draws the title and nothing else, so every pixel that is not transparent belongs to the text.
-    private static CoverStyle TextOnly(string title, string font = "Bodoni Moda", int textSize = 120, bool shadow = false) =>
+    private static CoverStyle TextOnly(
+        string title,
+        string font = "Bodoni Moda",
+        int textSize = 120,
+        bool shadow = false) =>
         new() { Title = title, Font = font, TextSize = textSize, Darken = 0, Frame = false, Shadow = shadow };
 
-    private static SKBitmap Render(CoverStyle style, string libraryName = "Library", int width = Width, int height = Height) =>
+    private static SKBitmap Render(
+        CoverStyle style,
+        string libraryName = "Library",
+        int width = Width,
+        int height = Height) =>
         SKBitmap.Decode(Renderer.RenderPng(style, libraryName, width, height))
             ?? throw new InvalidOperationException("RenderPng did not return an image.");
 
@@ -537,7 +545,9 @@ public sealed class OverlayRendererTests
         var withKasra = InkBounds(Render(TextOnly("بِ")));
 
         Assert.True(withFatha.Top < tall.Top - 8, $"Top {withFatha.Top} with the mark, {tall.Top} without.");
-        Assert.True(withKasra.Bottom > low.Bottom + 8, $"Bottom {withKasra.Bottom} with the mark, {low.Bottom} without.");
+        Assert.True(
+            withKasra.Bottom > low.Bottom + 8,
+            $"Bottom {withKasra.Bottom} with the mark, {low.Bottom} without.");
     }
 
     [Fact]
@@ -545,7 +555,12 @@ public sealed class OverlayRendererTests
     {
         const string arabic = "أفلام";
         var typeface = FontCatalog.ForText("Bodoni Moda", arabic);
-        using var font = new SKFont(typeface, 120 * Width / 960f) { Subpixel = true, LinearMetrics = true, Hinting = SKFontHinting.None };
+        using var font = new SKFont(typeface, 120 * Width / 960f)
+        {
+            Subpixel = true,
+            LinearMetrics = true,
+            Hinting = SKFontHinting.None,
+        };
         var shaped = FontCatalog.Shape(font, arabic).Width;
         var unshaped = font.MeasureText(arabic);
 
@@ -555,7 +570,9 @@ public sealed class OverlayRendererTests
         // The ink is the shaped line less its side bearings, so it is far closer to the shaped width than to the other.
         using var overlay = Render(TextOnly(arabic));
         double ink = InkBounds(overlay).Width;
-        Assert.True(Math.Abs(ink - shaped) < Math.Abs(ink - unshaped), $"Ink {ink} px, shaped {shaped} px, unshaped {unshaped} px.");
+        Assert.True(
+            Math.Abs(ink - shaped) < Math.Abs(ink - unshaped),
+            $"Ink {ink} px, shaped {shaped} px, unshaped {unshaped} px.");
     }
 
     [Fact]
@@ -574,8 +591,12 @@ public sealed class OverlayRendererTests
         // other way round.
         var leftEnd = new SKRectI(box.Left, box.Top, box.Left + betInk.Width, box.Bottom);
         var rightEnd = new SKRectI(box.Right - alefInk.Width, box.Top, box.Right, box.Bottom);
-        Assert.True(AlphaDifference(pair, leftEnd, bet, betInk.Left) * 4 < AlphaDifference(pair, leftEnd, alef, alefInk.Left));
-        Assert.True(AlphaDifference(pair, rightEnd, alef, alefInk.Left) * 4 < AlphaDifference(pair, rightEnd, bet, betInk.Left));
+        Assert.True(
+            AlphaDifference(pair, leftEnd, bet, betInk.Left) * 4
+            < AlphaDifference(pair, leftEnd, alef, alefInk.Left));
+        Assert.True(
+            AlphaDifference(pair, rightEnd, alef, alefInk.Left) * 4
+            < AlphaDifference(pair, rightEnd, bet, betInk.Left));
     }
 
     [Fact]
@@ -625,7 +646,8 @@ public sealed class OverlayRendererTests
     public void Each_family_draws_its_own_glyphs()
     {
         var renders = FontCatalog.Families
-            .Select(family => Convert.ToBase64String(Renderer.RenderPng(TextOnly("FILMES", family), "x", Width, Height)))
+            .Select(
+                family => Convert.ToBase64String(Renderer.RenderPng(TextOnly("FILMES", family), "x", Width, Height)))
             .ToList();
 
         Assert.NotEmpty(renders);

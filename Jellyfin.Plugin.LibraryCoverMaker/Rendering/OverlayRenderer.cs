@@ -91,10 +91,19 @@ public sealed class OverlayRenderer
 
     private static void DrawFrame(SKCanvas canvas, float scale, int width, int height)
     {
-        var frame = new SKRect(FrameLeft * scale, FrameTop * scale, width - FrameLeft * scale, height - FrameTop * scale);
+        var frame = new SKRect(
+            FrameLeft * scale,
+            FrameTop * scale,
+            width - FrameLeft * scale,
+            height - FrameTop * scale);
 
         // The drop shadow filter draws the shadow under the stroke itself, like a canvas shadow does.
-        using var shadow = SKImageFilter.CreateDropShadow(0, 0, FrameShadowSigma * scale, FrameShadowSigma * scale, FrameShadowColor);
+        using var shadow = SKImageFilter.CreateDropShadow(
+            0,
+            0,
+            FrameShadowSigma * scale,
+            FrameShadowSigma * scale,
+            FrameShadowColor);
         using var paint = new SKPaint
         {
             IsAntialias = true,
@@ -106,7 +115,13 @@ public sealed class OverlayRenderer
         canvas.DrawRoundRect(frame, FrameRadius * scale, FrameRadius * scale, paint);
     }
 
-    private static void DrawTitle(SKCanvas canvas, CoverStyle style, string libraryName, float scale, int width, int height)
+    private static void DrawTitle(
+        SKCanvas canvas,
+        CoverStyle style,
+        string libraryName,
+        float scale,
+        int width,
+        int height)
     {
         var text = (string.IsNullOrWhiteSpace(style.Title) ? libraryName : style.Title).Trim().ToUpperInvariant();
         if (text.Length == 0)
@@ -142,14 +157,25 @@ public sealed class OverlayRenderer
         var baseline = middle + font.Size * FontCatalog.BaselineBelowMiddle(FontCatalog.Get(style.Font));
 
         using var shadow = style.Shadow
-            ? SKImageFilter.CreateDropShadow(0, TitleShadowOffsetY * scale, TitleShadowSigma * scale, TitleShadowSigma * scale, TitleShadowColor)
+            ? SKImageFilter.CreateDropShadow(
+                0,
+                TitleShadowOffsetY * scale,
+                TitleShadowSigma * scale,
+                TitleShadowSigma * scale,
+                TitleShadowColor)
             : null;
         using var paint = new SKPaint { IsAntialias = true, Color = SKColors.White, ImageFilter = shadow };
         DrawGlyphs(canvas, shaped, font, (width - shaped.Width) / 2f, baseline, paint);
     }
 
     // Draws shaped glyphs as one run, the line starting at x on the given baseline.
-    private static void DrawGlyphs(SKCanvas canvas, SKShaper.Result shaped, SKFont font, float x, float baseline, SKPaint paint)
+    private static void DrawGlyphs(
+        SKCanvas canvas,
+        SKShaper.Result shaped,
+        SKFont font,
+        float x,
+        float baseline,
+        SKPaint paint)
     {
         if (shaped.Codepoints.Length == 0)
         {

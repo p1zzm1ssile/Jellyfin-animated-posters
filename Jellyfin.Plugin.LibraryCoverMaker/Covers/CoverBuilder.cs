@@ -42,12 +42,14 @@ namespace Jellyfin.Plugin.LibraryCoverMaker.Covers;
 /// </para>
 /// <para>
 /// The render happens outside any lock, into new files named by a new cover id. Then, inside the library's
-/// <see cref="CoverStore.UpdateAsync"/>, the build throws the render away when an admin changed the library meanwhile
-/// (pinned it, switched its mode, or put another cover on it) or, for a pinned library, when its cover no longer has to
-/// be replaced, and fails when a title of the new cover is now hidden from a viewer. Otherwise it applies the cover in
-/// the Primary format configured at that moment, makes it the current one and adds it to the history; the store saves
-/// the state. A failed render keeps the current cover and records why (<see cref="LibraryCoverState.LastError"/>, a
-/// warning in the log). A bad title never fails a build, and cancellation leaves the state as it was.
+/// <see cref="CoverStore.UpdateAsync"/>, the build throws the render away when an admin put another cover on the
+/// library meanwhile, when an admin pinned it or switched its mode and its cover does not have to be replaced, or, for
+/// a pinned library, when its cover no longer has to be replaced; it fails when a title of the new cover is now hidden
+/// from a viewer. Otherwise it applies the cover in the Primary format configured at that moment, makes it the current
+/// one and adds it to the history, keeping the library's pin and mode; the store saves the state. A cover that had to
+/// be replaced leaves a notice on the card that says whether it was. A failed render keeps the current cover and
+/// records why (<see cref="LibraryCoverState.LastError"/>, a warning in the log). A bad title never fails a build, and
+/// cancellation leaves the state as it was.
 /// </para>
 /// </remarks>
 public sealed class CoverBuilder
@@ -190,6 +192,8 @@ public sealed class CoverBuilder
         bool Allowed(Guid id) =>
             candidateIds.Contains(id) || _source.Access(library, id, viewers) == TitleAccess.Allowed;
 
+        // What the card says about the locks this build freed, kept in whatever notice the build ends with.
+        string? unlocked = null;
         if (CoverRules.DisallowedLocks(state.Slots, Allowed).Count > 0)
         {
             state = await _store.UpdateAsync(
@@ -197,16 +201,21 @@ public sealed class CoverBuilder
                 (current, token) =>
                 {
                     token.ThrowIfCancellationRequested();
-                    FreeLocks(library, current, viewers, Allowed);
+                    unlocked = FreeLocks(library, current, viewers, Allowed);
                     return Task.CompletedTask;
                 },
                 config.DefaultMode,
                 ct).ConfigureAwait(false);
         }
 
-        var mustReplace = CoverRules.MustReplace(CurrentRecord(state), Allowed);
+        var mustReplace = CoverRules.MustReplace(CoverRules.Current(state), Allowed);
         if (!CoverRules.ShouldBuild(state, library.CollectionType, reason, mustReplace))
         {
+            if (!mustReplace && CoverRules.IsPending(state.Notice))
+            {
+                await SettleAsync(libraryId, Allowed, unlocked, config, ct).ConfigureAwait(false);
+            }
+
             return new BuildResult(false, null, 0);
         }
 
@@ -241,7 +250,7 @@ public sealed class CoverBuilder
                 library.Name,
                 ex.Message,
                 errors);
-            await RecordFailureAsync(libraryId, ex.Message, config, ct).ConfigureAwait(false);
+            await RecordFailureAsync(libraryId, ex.Message, Allowed, unlocked, config, ct).ConfigureAwait(false);
             return new BuildResult(false, ex.Message, slots.Count);
         }
         finally
@@ -252,7 +261,8 @@ public sealed class CoverBuilder
             }
         }
 
-        return await CommitAsync(library, reason, state, record, slots.Count, config, ct).ConfigureAwait(false);
+        return await CommitAsync(library, reason, state, record, slots.Count, unlocked, config, ct)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -277,11 +287,6 @@ public sealed class CoverBuilder
         var crop = await measureCrop(video, start, seconds, ct).ConfigureAwait(false);
         return new SlotInput(SlotKind.Video, video.Path, start, seconds, hdr, crop);
     }
-
-    // The cover a state shows now: an entry of its history, or its original.
-    private static CoverRecord? CurrentRecord(LibraryCoverState state) =>
-        state.History.Find(cover => cover.Id == state.CurrentCoverId)
-        ?? (state.Original is { } original && original.Id == state.CurrentCoverId ? original : null);
 
     private static CoverStyle WithSlots(CoverStyle style, int slots) => new()
     {
@@ -310,8 +315,9 @@ public sealed class CoverBuilder
         return png.ToArray();
     }
 
-    // Unlocks the slots whose titles some viewer may not see or that left the library, and says so on the card.
-    private void FreeLocks(
+    // Unlocks the slots whose titles some viewer may not see or that left the library, and says so on the card, after
+    // the reason of a replacement that is pending. Returns what it said, or null when nothing was unlocked.
+    private string? FreeLocks(
         LibraryInfo library,
         LibraryCoverState state,
         IReadOnlyList<User> viewers,
@@ -320,37 +326,19 @@ public sealed class CoverBuilder
         var freed = CoverRules.DisallowedLocks(state.Slots, allowed);
         if (freed.Count == 0)
         {
-            return;
+            return null;
         }
 
-        foreach (var slot in state.Slots.Where(slot => slot.ItemId is { } id && freed.Contains(id)))
-        {
-            slot.ItemId = null;
-            slot.MomentSeconds = null;
-            slot.BackdropIndex = null;
-        }
+        CoverRules.Unlock(state, freed);
 
-        // Both count as not allowed, which is the safe side; the card says which it was.
+        // Both count as not allowed, which is the safe side; the card says which it was. No user is to blame here.
         var gone = freed.Where(id => _source.Access(library, id, viewers) == TitleAccess.Missing).ToList();
-        var hidden = freed.Except(gone).ToList();
-        var parts = new List<string>();
-        if (hidden.Count > 0)
-        {
-            var names = string.Join(", ", hidden.Select(id => "\"" + _source.TitleName(id) + "\""));
-            var them = hidden.Count == 1 ? "it" : "them";
-            parts.Add($"Unlocked {names}: some viewers of this library may not see {them}.");
-        }
-
-        if (gone.Count > 0)
-        {
-            parts.Add(gone.Count == 1
-                ? "Unlocked a title that is no longer in this library."
-                : $"Unlocked {gone.Count} titles that are no longer in this library.");
-        }
-
-        state.Notice = string.Join(" ", parts);
+        var hidden = freed.Except(gone).Select(id => "\"" + _source.TitleName(id) + "\"").ToList();
+        var said = CoverRules.UnlockNotice(null, [], hidden, gone.Count);
+        state.Notice = CoverRules.AddUnlocked(state.Notice, said);
         state.NoticeAt = DateTimeOffset.UtcNow;
-        _log.LogInformation("Library Cover Maker: {Notice} (library {LibraryId})", state.Notice, state.LibraryId);
+        _log.LogInformation("Library Cover Maker: {Notice} (library {LibraryId})", said, state.LibraryId);
+        return said;
     }
 
     // The slots of the cover, in order, each with the title it shows. Empty for the name-only cover.
@@ -365,7 +353,7 @@ public sealed class CoverBuilder
         var style = state.Style;
         var slotCount = Math.Clamp(style.SlotCount, 0, LibraryCoverState.MaxSlots);
         var locks = state.Slots.Take(slotCount).Where(slot => slot.Locked).ToList();
-        var previous = CurrentRecord(state)?.TitleIds ?? [];
+        var previous = CoverRules.Current(state)?.TitleIds ?? [];
 
         var slots = new List<Filled>();
         if (state.Mode != CoverMode.Art || candidates.Any(title => title.HasBackdrop))
@@ -560,6 +548,7 @@ public sealed class CoverBuilder
         LibraryCoverState started,
         CoverRecord record,
         int slotCount,
+        string? unlocked,
         PluginConfiguration config,
         CancellationToken ct)
     {
@@ -572,11 +561,9 @@ public sealed class CoverBuilder
                 library.Id,
                 async (state, token) =>
                 {
-                    // An admin pinned the library, changed its mode or put another cover on it while it rendered:
-                    // their choice wins.
-                    if (state.Pinned != started.Pinned
-                        || state.Mode != started.Mode
-                        || state.CurrentCoverId != started.CurrentCoverId)
+                    // An admin put another cover on the library while it rendered: their choice wins. A restore that
+                    // breaks the rule is refused, and the renewal audit queues anything else that does.
+                    if (state.CurrentCoverId != started.CurrentCoverId)
                     {
                         discarded = true;
                         return;
@@ -585,14 +572,28 @@ public sealed class CoverBuilder
                     // Viewers and their limits as they are now, not as they were when the titles were chosen.
                     var viewers = _source.Viewers(library);
                     bool AllowedNow(Guid id) => _source.Access(library, id, viewers) == TitleAccess.Allowed;
+                    var mustReplace = CoverRules.MustReplace(CoverRules.Current(state), AllowedNow);
+
+                    // An admin pinned the library or changed its mode while it rendered: their choice wins, unless the
+                    // cover it shows must be replaced anyway (decision 9). Then the new cover goes on, and the pin and
+                    // the mode stay as the admin set them. After a switch of mode, that cover was rendered in the old
+                    // mode: accepted, because the parental rule wins over the look, and the next build uses the new
+                    // mode.
+                    if ((state.Pinned != started.Pinned || state.Mode != started.Mode) && !mustReplace)
+                    {
+                        discarded = true;
+                        Settle(state, unlocked);
+                        return;
+                    }
 
                     // A pinned library, or a manual one rebuilt for an audience change, is built only to replace a
                     // cover that breaks the rule; if it no longer does, the admin's cover stays.
                     var replacing = state.Pinned
                         || (state.Mode == CoverMode.Manual && reason == BuildReason.AudienceChanged);
-                    if (replacing && !CoverRules.MustReplace(CurrentRecord(state), AllowedNow))
+                    if (replacing && !mustReplace)
                     {
                         discarded = true;
+                        Settle(state, unlocked);
                         return;
                     }
 
@@ -603,8 +604,7 @@ public sealed class CoverBuilder
                     if (refused.Count > 0)
                     {
                         error = refused.Contains(TitleAccess.Missing) ? GoneAtCommit : HiddenAtCommit;
-                        state.LastError = error;
-                        state.LastErrorAt = DateTimeOffset.UtcNow;
+                        Failed(state, error, mustReplace, unlocked);
                         return;
                     }
 
@@ -620,14 +620,25 @@ public sealed class CoverBuilder
                             "Library Cover Maker: the new cover of library {Library} could not be applied",
                             library.Name);
                         error = "The cover could not be applied: " + ex.Message;
-                        state.LastError = error;
-                        state.LastErrorAt = DateTimeOffset.UtcNow;
+                        Failed(state, error, mustReplace, unlocked);
                         return;
                     }
 
                     state.LastRenderedAt = DateTimeOffset.UtcNow;
                     state.LastError = null;
                     state.LastErrorAt = null;
+                    if (mustReplace)
+                    {
+                        state.Notice = CoverRules.ReplacedNotice(state.Notice, unlocked);
+                        state.NoticeAt = state.LastRenderedAt;
+                    }
+                    else if (CoverRules.IsPending(state.Notice))
+                    {
+                        // Queued for the rule, which the old cover no longer broke: only the freed locks are news.
+                        state.Notice = unlocked;
+                        state.NoticeAt = unlocked is null ? null : state.LastRenderedAt;
+                    }
+
                     run.AddToHistory(state, record);
                 },
                 config.DefaultMode,
@@ -663,14 +674,62 @@ public sealed class CoverBuilder
         return new BuildResult(run.Applied, error, slotCount);
     }
 
-    private Task RecordFailureAsync(Guid libraryId, string error, PluginConfiguration config, CancellationToken ct) =>
+    // The card says why the build failed and, when the cover it was to replace breaks the rule, that it still does.
+    private static void Failed(LibraryCoverState state, string error, bool mustReplace, string? unlocked)
+    {
+        state.LastError = error;
+        state.LastErrorAt = DateTimeOffset.UtcNow;
+        if (mustReplace)
+        {
+            state.Notice = CoverRules.NotReplacedNotice(state.Notice, unlocked);
+            state.NoticeAt = state.LastErrorAt;
+        }
+    }
+
+    // A build queued to replace the cover found that it no longer has to: the card stops saying it is queued.
+    private static void Settle(LibraryCoverState state, string? unlocked)
+    {
+        if (CoverRules.IsPending(state.Notice))
+        {
+            state.Notice = CoverRules.SettledNotice(unlocked);
+            state.NoticeAt = DateTimeOffset.UtcNow;
+        }
+    }
+
+    private Task SettleAsync(
+        Guid libraryId,
+        Func<Guid, bool> allowed,
+        string? unlocked,
+        PluginConfiguration config,
+        CancellationToken ct) =>
         _store.UpdateAsync(
             libraryId,
             (state, token) =>
             {
                 token.ThrowIfCancellationRequested();
-                state.LastError = error;
-                state.LastErrorAt = DateTimeOffset.UtcNow;
+                if (!CoverRules.MustReplace(CoverRules.Current(state), allowed))
+                {
+                    Settle(state, unlocked);
+                }
+
+                return Task.CompletedTask;
+            },
+            config.DefaultMode,
+            ct);
+
+    private Task RecordFailureAsync(
+        Guid libraryId,
+        string error,
+        Func<Guid, bool> allowed,
+        string? unlocked,
+        PluginConfiguration config,
+        CancellationToken ct) =>
+        _store.UpdateAsync(
+            libraryId,
+            (state, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                Failed(state, error, CoverRules.MustReplace(CoverRules.Current(state), allowed), unlocked);
                 return Task.CompletedTask;
             },
             config.DefaultMode,
@@ -816,10 +875,22 @@ internal sealed class JellyfinCoverSource(
             .ToList();
     }
 
-    public TitleAccess Access(LibraryInfo info, Guid itemId, IReadOnlyList<User> viewers)
+    public TitleAccess Access(LibraryInfo info, Guid itemId, IReadOnlyList<User> viewers) =>
+        AccessOf(library, audience, info.Id, itemId, viewers);
+
+    /// <summary>
+    /// Whether all <paramref name="viewers"/> may see an item (title or episode) of the library: the rule every
+    /// check of a cover's titles uses, in the build, in a restore and in the renewal audit.
+    /// </summary>
+    internal static TitleAccess AccessOf(
+        ILibraryManager library,
+        LibraryAudience audience,
+        Guid libraryId,
+        Guid itemId,
+        IReadOnlyList<User> viewers)
     {
         var item = library.GetItemById(itemId);
-        if (item is null || !library.GetCollectionFolders(item).Exists(folder => folder.Id == info.Id))
+        if (item is null || !library.GetCollectionFolders(item).Exists(folder => folder.Id == libraryId))
         {
             return TitleAccess.Missing;
         }
@@ -987,9 +1058,26 @@ internal sealed class JellyfinCoverSource(
         return plays;
     }
 
-    private Video? EpisodeOf(Series series, IReadOnlyList<User> viewers)
+    /// <summary>
+    /// The episode a series' scene comes from: the first on disk that every one of <paramref name="viewers"/> may see
+    /// (<see cref="FirstEpisode"/>). The build and the admin API's slot checks and frame previews all ask this.
+    /// </summary>
+    internal static Video? EpisodeFor(
+        ILibraryManager library,
+        LibraryAudience audience,
+        Series series,
+        IReadOnlyList<User> viewers)
     {
-        var episodes = Query(series.Id, [BaseItemKind.Episode]).OfType<Video>();
+        var episodes = library.GetItemList(new InternalItemsQuery
+        {
+            AncestorIds = [series.Id],
+            Recursive = true,
+            IsVirtualItem = false,
+            IncludeItemTypes = [BaseItemKind.Episode],
+        }).OfType<Video>();
         return FirstEpisode(episodes, episode => IsOnDisk(episode) && audience.AllowedForAll(episode, viewers));
     }
+
+    private Video? EpisodeOf(Series series, IReadOnlyList<User> viewers) =>
+        EpisodeFor(library, audience, series, viewers);
 }

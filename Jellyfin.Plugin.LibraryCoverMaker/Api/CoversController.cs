@@ -107,7 +107,7 @@ public class CoversController : ControllerBase
     [HttpGet("Libraries/{libraryId}")]
     public ActionResult<LibraryStateDto> GetLibrary([FromRoute] Guid libraryId) =>
         Folder(libraryId) is null
-            ? NotFound(Missing(libraryId))
+            ? NotFound(Error(Missing(libraryId)))
             : LibraryStateDto.From(_store.Load(libraryId, DefaultMode()));
 
     /// <summary>
@@ -122,7 +122,7 @@ public class CoversController : ControllerBase
     {
         if (Folder(libraryId) is not { } folder)
         {
-            return NotFound(Missing(libraryId));
+            return NotFound(Error(Missing(libraryId)));
         }
 
         var errors = new List<string>();
@@ -219,7 +219,7 @@ public class CoversController : ControllerBase
     {
         if (Folder(libraryId) is not { } folder)
         {
-            return NotFound(Missing(libraryId));
+            return NotFound(Error(Missing(libraryId)));
         }
 
         if (!CoverRules.IsVideoLibrary(CollectionTypeOf(folder)))
@@ -285,7 +285,7 @@ public class CoversController : ControllerBase
     {
         if (Folder(libraryId) is null)
         {
-            return NotFound(Missing(libraryId));
+            return NotFound(Error(Missing(libraryId)));
         }
 
         if (file.Length == 0)
@@ -340,7 +340,7 @@ public class CoversController : ControllerBase
     {
         if (Folder(libraryId) is null)
         {
-            return NotFound(Missing(libraryId));
+            return NotFound(Error(Missing(libraryId)));
         }
 
         var state = await _store.UpdateAsync(
@@ -363,7 +363,7 @@ public class CoversController : ControllerBase
     {
         if (Folder(libraryId) is null)
         {
-            return NotFound(Missing(libraryId));
+            return NotFound(Error(Missing(libraryId)));
         }
 
         var state = await _store.UpdateAsync(
@@ -383,7 +383,8 @@ public class CoversController : ControllerBase
     /// <summary>
     /// Makes a cover of the library's history, or its original, the Primary image again, and pins the library. An
     /// original that was Jellyfin's automatic collage gives the library back to the collage instead of putting a
-    /// copy of it in place.
+    /// copy of it in place. A cover the plugin composed is refused with 409 when one of its titles is hidden from a
+    /// viewer of the library now, or is no longer in it (decision 9); an upload and the original are the admin's call.
     /// </summary>
     [HttpPost("Libraries/{libraryId}/Restore/{coverId}")]
     public async Task<ActionResult<LibraryStateDto>> Restore(
@@ -393,7 +394,7 @@ public class CoversController : ControllerBase
     {
         if (Folder(libraryId) is null)
         {
-            return NotFound(Missing(libraryId));
+            return NotFound(Error(Missing(libraryId)));
         }
 
         using var run = _applier.StartApply(libraryId);
@@ -404,6 +405,13 @@ public class CoversController : ControllerBase
                 async (current, token) =>
                 {
                     var record = FindCover(current, coverId) ?? throw new CoverMissingException(coverId);
+
+                    // Under the library's gate, so the answer holds for the cover that is applied.
+                    if (record.Origin == CoverOrigin.Generated && RestoreProblem(libraryId, record) is { } problem)
+                    {
+                        throw new RestoreRefusedException(problem);
+                    }
+
                     if (record is { Origin: CoverOrigin.Original, Automatic: true })
                     {
                         await run.ReturnToAutomaticAsync(current, token).ConfigureAwait(false);
@@ -425,6 +433,11 @@ public class CoversController : ControllerBase
         {
             run.Unsaved(ex);
             return NotFound(Error($"The library has no cover {coverId:N}."));
+        }
+        catch (RestoreRefusedException ex)
+        {
+            run.Unsaved(ex);
+            return Conflict(Error(ex.Message));
         }
         catch (LibraryGoneException ex)
         {
@@ -458,7 +471,7 @@ public class CoversController : ControllerBase
     {
         if (Folder(libraryId) is null)
         {
-            return NotFound(Missing(libraryId));
+            return NotFound(Error(Missing(libraryId)));
         }
 
         var state = _store.Load(libraryId, DefaultMode());
@@ -485,7 +498,7 @@ public class CoversController : ControllerBase
     {
         if (Folder(libraryId) is not { } folder)
         {
-            return NotFound(Missing(libraryId));
+            return NotFound(Error(Missing(libraryId)));
         }
 
         var term = search?.Trim();
@@ -547,7 +560,7 @@ public class CoversController : ControllerBase
         var video = item switch
         {
             Video single => single,
-            MediaBrowser.Controller.Entities.TV.Series series => EpisodeOf(series),
+            MediaBrowser.Controller.Entities.TV.Series series => EpisodeOf(series, ViewersOfLibraryOf(series)),
             _ => null,
         };
         if (video is null || !IsOnDisk(video))
@@ -766,7 +779,7 @@ public class CoversController : ControllerBase
         var video = item switch
         {
             Video single => single,
-            MediaBrowser.Controller.Entities.TV.Series series => EpisodeOf(series),
+            MediaBrowser.Controller.Entities.TV.Series series => EpisodeOf(series, viewers),
             _ => null,
         };
         if (slot.MomentSeconds is { } moment
@@ -789,17 +802,32 @@ public class CoversController : ControllerBase
         return null;
     }
 
-    private Video? EpisodeOf(MediaBrowser.Controller.Entities.TV.Series series)
+    // Why a cover the plugin composed may not be restored now, or null: every title it shows (the series and the
+    // episode of a series slot) must still be in the library and be something every viewer may see.
+    private string? RestoreProblem(Guid libraryId, CoverRecord record)
     {
-        var episodes = _library.GetItemList(new InternalItemsQuery
+        var viewers = _audience.UsersWhoSee(libraryId);
+        var refused = record.TitleIds
+            .Select(id => JellyfinCoverSource.AccessOf(_library, _audience, libraryId, id, viewers))
+            .Where(access => access != TitleAccess.Allowed)
+            .ToList();
+        if (refused.Count == 0)
         {
-            AncestorIds = [series.Id],
-            Recursive = true,
-            IsVirtualItem = false,
-            IncludeItemTypes = [BaseItemKind.Episode],
-        }).OfType<Video>();
-        return JellyfinCoverSource.FirstEpisode(episodes, IsOnDisk);
+            return null;
+        }
+
+        return refused.Contains(TitleAccess.Hidden)
+            ? "That cover shows a title some viewers of this library may not see now, so it cannot be restored."
+            : "That cover shows a title that is no longer in this library, so it cannot be restored.";
     }
+
+    // The episode the build takes a series' clip from, for the same viewers, so the slider shows what is rendered.
+    private Video? EpisodeOf(MediaBrowser.Controller.Entities.TV.Series series, IReadOnlyList<User> viewers) =>
+        JellyfinCoverSource.EpisodeFor(_library, _audience, series, viewers);
+
+    // The viewers of the library a series is in; nobody (so every episode) when Jellyfin knows of no library.
+    private IReadOnlyList<User> ViewersOfLibraryOf(BaseItem item) =>
+        _library.GetCollectionFolders(item).FirstOrDefault() is { } library ? _audience.UsersWhoSee(library.Id) : [];
 
     private static bool IsOnDisk(Video video) =>
         !video.IsPlaceHolder
@@ -842,6 +870,9 @@ public class CoversController : ControllerBase
 
     /// <summary>A cover the library's state does not list.</summary>
     private sealed class CoverMissingException(Guid coverId) : Exception($"The library has no cover {coverId:N}.");
+
+    /// <summary>A restore the visibility rule refused: nothing was applied or saved.</summary>
+    private sealed class RestoreRefusedException(string reason) : Exception(reason);
 
     /// <summary>A request the rules refused after the library's gate was taken: nothing was saved.</summary>
     private sealed class RejectedException(IReadOnlyList<string> errors) : Exception("The request was refused.")

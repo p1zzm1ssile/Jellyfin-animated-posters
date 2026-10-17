@@ -6,6 +6,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.LibraryCoverMaker.Covers;
 using Jellyfin.Plugin.LibraryCoverMaker.Storage;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -69,10 +70,6 @@ public sealed class CoverImageFilter : IAsyncActionFilter
     // The item image action's methods (the HEAD routes share them; only their route names differ).
     private static readonly FrozenSet<string> ItemImageActions =
         FrozenSet.ToFrozenSet(["GetItemImage", "GetItemImageByIndex", "GetItemImage2"], StringComparer.Ordinal);
-
-    // Jellyfin keeps the image's modification time in its database; a round trip through it must not make the
-    // plugin's own image look changed. The same tolerance as PrimaryImageWatcher's.
-    private static readonly TimeSpan SameTime = TimeSpan.FromSeconds(1);
 
     private const string ImmutableCache = "public, max-age=31536000, immutable";
     private const string PublicCache = "public";
@@ -144,16 +141,6 @@ public sealed class CoverImageFilter : IAsyncActionFilter
         return "\"" + tag + "\"";
     }
 
-    /// <summary>
-    /// Where the store keeps a library's state: <c>state.json</c> in the library's folder, the folder above its
-    /// <c>covers</c> (the layout <see cref="CoverStore"/> documents). A test pins it.
-    /// </summary>
-    internal static string StatePathOf(CoverStore store, Guid libraryId)
-    {
-        var covers = Path.GetDirectoryName(store.AnimatedPath(libraryId, Guid.Empty))!;
-        return Path.Combine(Path.GetDirectoryName(covers)!, "state.json");
-    }
-
     // The item asked for when this is the item image action for a Primary image at index 0 or none, otherwise null.
     // Only the arguments model binding gave the action are read, so every route of the action is handled alike.
     private static Guid? PrimaryRequestItem(ActionExecutingContext context)
@@ -221,7 +208,7 @@ public sealed class CoverImageFilter : IAsyncActionFilter
         var state = StateOf(libraryId);
         if (!string.Equals(state.AppliedPath, image.Path, StringComparison.Ordinal)
             || state.AppliedModified is not { } applied
-            || (image.DateModified - applied).Duration() > SameTime)
+            || (image.DateModified - applied).Duration() > CoverApplier.AppliedTimeTolerance)
         {
             return null;
         }
@@ -249,7 +236,7 @@ public sealed class CoverImageFilter : IAsyncActionFilter
     // request reads it once more, never the other way round.
     private StateSeen StateOf(Guid libraryId)
     {
-        var file = new FileInfo(StatePathOf(_store, libraryId));
+        var file = new FileInfo(_store.StatePath(libraryId));
         var stamp = file.Exists ? new FileStamp(file.LastWriteTimeUtc.Ticks, file.Length) : FileStamp.Missing;
         if (_states.TryGetValue(libraryId, out var known) && known.Stamp == stamp)
         {

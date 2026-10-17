@@ -1121,6 +1121,156 @@ public sealed class CoverRulesTests : IDisposable
     }
 
     [Fact]
+    public async Task Pin_during_a_replacement_applies_it_and_keeps_the_pin()
+    {
+        Titles(TitleA, TitleB);
+        _source.HiddenItems.Add(Hidden);
+        var old = Record(CoverOrigin.Generated, Hidden);
+        _store.Update(Library, state =>
+        {
+            state.History.Add(old);
+            state.CurrentCoverId = old.Id;
+            state.Notice = CoverRules.QueuedNotice("kid may not see \"Hidden Film\"");
+        });
+        _renderer.During = () => _store.Update(Library, state => state.Pinned = true);
+
+        var result = await _builder.BuildAsync(Library, BuildReason.AudienceChanged, CancellationToken.None);
+
+        // The pinned cover still shows the hidden title, so the admin's pin cannot keep it (decision 9).
+        Assert.True(result.Applied);
+        var state = _store.Load(Library);
+        Assert.True(state.Pinned);
+        Assert.NotEqual(old.Id, state.CurrentCoverId);
+        Assert.DoesNotContain(Hidden, state.History[0].TitleIds);
+        Assert.Equal("Replaced the cover because kid may not see \"Hidden Film\".", state.Notice);
+        Assert.Equal(state.LastRenderedAt, state.NoticeAt);
+    }
+
+    [Fact]
+    public async Task Switch_to_manual_during_a_replacement_applies_it_and_keeps_the_mode()
+    {
+        Titles(TitleA, TitleB);
+        _source.HiddenItems.Add(Hidden);
+        var old = Record(CoverOrigin.Generated, Hidden);
+        _store.Update(Library, state =>
+        {
+            state.History.Add(old);
+            state.CurrentCoverId = old.Id;
+        });
+        _renderer.During = () => _store.Update(Library, state => state.Mode = CoverMode.Manual);
+
+        var result = await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
+
+        Assert.True(result.Applied);
+        var state = _store.Load(Library);
+        Assert.Equal(CoverMode.Manual, state.Mode);
+        Assert.NotEqual(old.Id, state.CurrentCoverId);
+        Assert.StartsWith("Replaced the cover because a title on it may not be seen", state.Notice);
+    }
+
+    [Fact]
+    public async Task Replacement_that_fails_says_so_and_keeps_the_reason()
+    {
+        Titles(TitleA, TitleB);
+        _source.HiddenItems.Add(Hidden);
+        var old = Record(CoverOrigin.Generated, Hidden);
+        _store.Update(Library, state =>
+        {
+            state.Pinned = true;
+            state.History.Add(old);
+            state.CurrentCoverId = old.Id;
+            state.Notice = CoverRules.QueuedNotice("kid may not see \"Hidden Film\"");
+        });
+        _renderer.Failure = new CoverRenderException("ffmpeg exited with code 1", 1, "boom");
+
+        var result = await _builder.BuildAsync(Library, BuildReason.AudienceChanged, CancellationToken.None);
+
+        Assert.False(result.Applied);
+        var state = _store.Load(Library);
+        Assert.Equal(old.Id, state.CurrentCoverId);
+        Assert.Equal("ffmpeg exited with code 1", state.LastError);
+        Assert.Equal(
+            "Could not replace the cover yet, so it is tried again later. It was queued because kid may not see "
+            + "\"Hidden Film\".",
+            state.Notice);
+        Assert.Equal(state.LastErrorAt, state.NoticeAt);
+
+        // The retry that goes through says what happened, still naming the user.
+        _renderer.Failure = null;
+        Assert.True((await _builder.BuildAsync(Library, BuildReason.AudienceChanged, CancellationToken.None)).Applied);
+        Assert.Equal("Replaced the cover because kid may not see \"Hidden Film\".", _store.Load(Library).Notice);
+    }
+
+    [Fact]
+    public async Task Audit_replacement_that_also_frees_locks_keeps_the_unlock_text()
+    {
+        Titles(TitleA, TitleB);
+        _source.Names[Hidden] = "Hidden Film";
+        _source.HiddenItems.Add(Hidden);
+        var old = Record(CoverOrigin.Generated, Hidden);
+        _store.Update(Library, state =>
+        {
+            state.Pinned = true;
+            state.History.Add(old);
+            state.CurrentCoverId = old.Id;
+            state.Slots[0] = new CoverSlot { ItemId = Hidden, MomentSeconds = 30 };
+        });
+
+        var result = await _builder.BuildAsync(Library, BuildReason.AudienceChanged, CancellationToken.None);
+
+        Assert.True(result.Applied);
+        var notice = _store.Load(Library).Notice;
+        Assert.StartsWith("Replaced the cover because a title on it may not be seen", notice);
+        Assert.EndsWith(
+            "Unlocked \"Hidden Film\" because some viewers of this library may not see it.",
+            notice,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Queued_replacement_that_is_no_longer_needed_says_so()
+    {
+        Titles(TitleA, TitleB);
+        var old = Record(CoverOrigin.Generated, Hidden); // Hidden is allowed again: the viewer's limits were relaxed
+        _store.Update(Library, state =>
+        {
+            state.Pinned = true;
+            state.History.Add(old);
+            state.CurrentCoverId = old.Id;
+            state.Notice = CoverRules.QueuedNotice("kid may not see \"Hidden Film\"");
+        });
+
+        var result = await _builder.BuildAsync(Library, BuildReason.AudienceChanged, CancellationToken.None);
+
+        Assert.Equal(new BuildResult(false, null, 0), result);
+        var state = _store.Load(Library);
+        Assert.Equal(old.Id, state.CurrentCoverId);
+        Assert.Equal(CoverRules.SettledNotice(), state.Notice);
+        Assert.NotNull(state.NoticeAt);
+    }
+
+    [Fact]
+    public async Task Queued_replacement_dropped_at_commit_says_it_was_not_needed()
+    {
+        Titles(TitleA, TitleB);
+        _source.HiddenItems.Add(Hidden);
+        var old = Record(CoverOrigin.Generated, Hidden);
+        _store.Update(Library, state =>
+        {
+            state.Pinned = true;
+            state.History.Add(old);
+            state.CurrentCoverId = old.Id;
+            state.Notice = CoverRules.QueuedNotice("kid may not see \"Hidden Film\"");
+        });
+        _renderer.During = () => _source.HiddenItems.Remove(Hidden);
+
+        var result = await _builder.BuildAsync(Library, BuildReason.AudienceChanged, CancellationToken.None);
+
+        Assert.False(result.Applied);
+        Assert.Equal(CoverRules.SettledNotice(), _store.Load(Library).Notice);
+    }
+
+    [Fact]
     public async Task Mode_change_during_the_render_discards_it()
     {
         Titles(TitleA);

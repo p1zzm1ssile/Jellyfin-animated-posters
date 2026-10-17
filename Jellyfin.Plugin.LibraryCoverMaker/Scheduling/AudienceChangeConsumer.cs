@@ -38,8 +38,10 @@ namespace Jellyfin.Plugin.LibraryCoverMaker.Scheduling;
 /// </para>
 /// <para>
 /// A change saved through <c>IUserManager.UpdateUserAsync</c> publishes no event, as some third-party
-/// authentication plugins do, so it is not seen here. The check every build makes when it commits is the backstop:
-/// the library's next build never applies a title some viewer may not see.
+/// authentication plugins do, so it is not seen here; nor is a title whose rating or tags a metadata refresh changed.
+/// The audit of <see cref="RenewalScheduler"/> is the backstop for both: every 15 minutes it queues each library whose
+/// cover breaks the rule, pinned and manual ones included, and the check every build makes when it commits never
+/// applies a title some viewer may not see.
 /// </para>
 /// </remarks>
 public sealed class AudienceChangeConsumer : IEventConsumer<UserUpdatedEventArgs>, IEventConsumer<UserCreatedEventArgs>
@@ -163,7 +165,7 @@ public sealed class AudienceChangeConsumer : IEventConsumer<UserUpdatedEventArgs
 
         // A cheap read without the library's gate, which an apply or a commit holds; the change below looks again.
         var config = _config();
-        if (!Breaks(_store.Load(libraryId, config.DefaultMode), Allowed))
+        if (!CoverRules.BreaksRule(_store.Load(libraryId, config.DefaultMode), Allowed))
         {
             return;
         }
@@ -174,8 +176,9 @@ public sealed class AudienceChangeConsumer : IEventConsumer<UserUpdatedEventArgs
             (state, token) =>
             {
                 token.ThrowIfCancellationRequested();
-                var shown = CoverRules.MustReplace(Current(state), Allowed)
-                    ? Current(state)!.TitleIds.Where(id => !Allowed(id)).Distinct().ToList()
+                var current = CoverRules.Current(state);
+                var shown = CoverRules.MustReplace(current, Allowed)
+                    ? current!.TitleIds.Where(id => !Allowed(id)).Distinct().ToList()
                     : [];
                 var unlocked = CoverRules.DisallowedLocks(state.Slots, Allowed);
                 if (shown.Count == 0 && unlocked.Count == 0)
@@ -183,20 +186,19 @@ public sealed class AudienceChangeConsumer : IEventConsumer<UserUpdatedEventArgs
                     return Task.CompletedTask;
                 }
 
-                foreach (var slot in state.Slots.Where(slot => slot.ItemId is { } id && unlocked.Contains(id)))
-                {
-                    slot.ItemId = null;
-                    slot.MomentSeconds = null;
-                    slot.BackdropIndex = null;
-                }
-
+                CoverRules.Unlock(state, unlocked);
                 var parts = new List<string>();
                 if (shown.Count > 0)
                 {
-                    parts.Add("Queued for a new cover because " + Reasons(shown, user) + ".");
+                    parts.Add(CoverRules.QueuedNotice(Reasons(shown, user)));
                 }
 
-                parts.AddRange(UnlockNotices(unlocked, user));
+                if (unlocked.Count > 0)
+                {
+                    var (blamed, others, gone) = Sort(unlocked, user);
+                    parts.Add(CoverRules.UnlockNotice(user.Username, Quoted(blamed), Quoted(others), gone.Count));
+                }
+
                 state.Notice = string.Join(" ", parts);
                 state.NoticeAt = DateTimeOffset.UtcNow;
                 queue = true;
@@ -215,14 +217,6 @@ public sealed class AudienceChangeConsumer : IEventConsumer<UserUpdatedEventArgs
             Enqueue(libraryId);
         }
     }
-
-    // Whether the cover must be replaced or a locked title unlocked.
-    private static bool Breaks(LibraryCoverState state, Func<Guid, bool> allowed) =>
-        CoverRules.MustReplace(Current(state), allowed) || CoverRules.DisallowedLocks(state.Slots, allowed).Count > 0;
-
-    // The cover the library shows now, when it is in the history. The original is kept apart, and is never replaced.
-    private static CoverRecord? Current(LibraryCoverState state) =>
-        state.History.Find(cover => cover.Id == state.CurrentCoverId);
 
     // Why each of these titles breaks the rule, as "kid may not see "A"", "some viewers of this library may not see
     // "B"" and "a title is no longer in the library", joined with "and".
@@ -250,30 +244,6 @@ public sealed class AudienceChangeConsumer : IEventConsumer<UserUpdatedEventArgs
         return string.Join(" and ", reasons);
     }
 
-    private List<string> UnlockNotices(IReadOnlyList<Guid> titles, User user)
-    {
-        var (blamed, others, gone) = Sort(titles, user);
-        var notices = new List<string>();
-        if (blamed.Count > 0)
-        {
-            notices.Add($"Unlocked {Names(blamed)} because {user.Username} may not see {Them(blamed)}.");
-        }
-
-        if (others.Count > 0)
-        {
-            notices.Add($"Unlocked {Names(others)} because some viewers of this library may not see {Them(others)}.");
-        }
-
-        if (gone.Count > 0)
-        {
-            notices.Add(gone.Count == 1
-                ? "Unlocked a title that is no longer in the library."
-                : $"Unlocked {gone.Count} titles that are no longer in the library.");
-        }
-
-        return notices;
-    }
-
     // The titles the user may not see, those only other viewers may not see, and those no longer in Jellyfin.
     private (List<Guid> Blamed, List<Guid> Others, List<Guid> Gone) Sort(IReadOnlyList<Guid> titles, User user)
     {
@@ -283,10 +253,10 @@ public sealed class AudienceChangeConsumer : IEventConsumer<UserUpdatedEventArgs
         return (blamed, others, gone);
     }
 
-    private string Names(IEnumerable<Guid> titles) =>
-        string.Join(", ", titles.Select(id => "\"" + _access.TitleName(id) + "\""));
+    private string Names(IEnumerable<Guid> titles) => string.Join(", ", Quoted(titles));
 
-    private static string Them(IReadOnlyCollection<Guid> titles) => titles.Count == 1 ? "it" : "them";
+    private List<string> Quoted(IEnumerable<Guid> titles) =>
+        titles.Select(id => "\"" + _access.TitleName(id) + "\"").ToList();
 }
 
 /// <summary>What the check asks of Jellyfin about libraries, viewers and titles. The tests replace it.</summary>

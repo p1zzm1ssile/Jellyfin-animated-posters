@@ -6,6 +6,8 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.LibraryCoverMaker;
+using Jellyfin.Plugin.LibraryCoverMaker.Covers;
 using Jellyfin.Plugin.LibraryCoverMaker.Model;
 using Jellyfin.Plugin.LibraryCoverMaker.Storage;
 using MediaBrowser.Common.Configuration;
@@ -161,7 +163,8 @@ public sealed class CoverStoreTests : IDisposable
     [Fact]
     public void Save_is_not_part_of_the_public_surface()
     {
-        // From outside the plugin only Update and UpdateAsync write a state, because they alone take the library's turn first.
+        // From outside the plugin only Update and UpdateAsync write a state, because they alone take the library's turn
+        // first.
         Assert.DoesNotContain(typeof(CoverStore).GetMethods(), method => method.Name == "Save");
     }
 
@@ -195,7 +198,8 @@ public sealed class CoverStoreTests : IDisposable
     public void Enums_are_stored_as_names()
     {
         var state = _store.Load(Library);
-        state.History.Add(new CoverRecord { Id = Guid.NewGuid(), Origin = CoverOrigin.Uploaded, Mode = CoverMode.Manual });
+        state.History.Add(
+            new CoverRecord { Id = Guid.NewGuid(), Origin = CoverOrigin.Uploaded, Mode = CoverMode.Manual });
 
         _store.Save(state);
 
@@ -221,6 +225,22 @@ public sealed class CoverStoreTests : IDisposable
         Assert.Equal(Path.Combine(DataFolder, "tmp"), _store.TempFolder);
     }
 
+    // ---- History ----------------------------------------------------------------------------------------------------
+
+    // The history is trimmed by the applier, which returns the covers that are no longer in use; their files go once
+    // the state is saved, which these tests stand for by deleting them at once.
+    private void AddToHistory(LibraryCoverState state, CoverRecord record, int historySize)
+    {
+        var applier = Applier(historySize);
+        applier.DeleteCovers(state.LibraryId, applier.AddToHistory(state, record));
+    }
+
+    private CoverApplier Applier(int historySize) => new(
+        new NoImages(),
+        _store,
+        NullLogger<CoverApplier>.Instance,
+        () => new PluginConfiguration { HistorySize = historySize });
+
     [Fact]
     public void AddToHistory_keeps_newest_8_and_deletes_dropped_files()
     {
@@ -231,7 +251,7 @@ public sealed class CoverStoreTests : IDisposable
 
         foreach (var record in records)
         {
-            _store.AddToHistory(state, record, 8);
+            AddToHistory(state, record, 8);
         }
 
         Assert.Equal(records.Skip(2).Reverse().Select(r => r.Id), state.History.Select(r => r.Id));
@@ -256,7 +276,7 @@ public sealed class CoverStoreTests : IDisposable
 
         for (var i = 0; i < 10; i++)
         {
-            _store.AddToHistory(state, RecordWithFiles(Library, Day(i)), 3);
+            AddToHistory(state, RecordWithFiles(Library, Day(i)), 3);
         }
 
         Assert.Equal(3, state.History.Count);
@@ -273,9 +293,9 @@ public sealed class CoverStoreTests : IDisposable
         var state = _store.Load(Library);
         var earlier = RecordWithFiles(Library, Day(0));
         var added = RecordWithFiles(Library, Day(1));
-        _store.AddToHistory(state, earlier, 8);
+        AddToHistory(state, earlier, 8);
 
-        _store.AddToHistory(state, added, historySize);
+        AddToHistory(state, added, historySize);
 
         Assert.Equal(new[] { added.Id }, state.History.Select(r => r.Id));
         AssertFilesKept(Library, added);
@@ -287,8 +307,8 @@ public sealed class CoverStoreTests : IDisposable
     {
         var state = _store.Load(Library);
 
-        Assert.Throws<ArgumentNullException>(() => _store.AddToHistory(null!, new CoverRecord(), 8));
-        Assert.Throws<ArgumentNullException>(() => _store.AddToHistory(state, null!, 8));
+        Assert.Throws<ArgumentNullException>(() => Applier(8).AddToHistory(null!, new CoverRecord()));
+        Assert.Throws<ArgumentNullException>(() => Applier(8).AddToHistory(state, null!));
         Assert.Empty(state.History);
     }
 
@@ -301,12 +321,13 @@ public sealed class CoverStoreTests : IDisposable
         var newest = RecordWithFiles(Library, Day(2));
         foreach (var cover in new[] { oldest, middle, newest })
         {
-            _store.AddToHistory(state, cover, 8);
+            AddToHistory(state, cover, 8);
         }
 
-        // A cover from the middle of the history comes back, for example restored by an admin: it is listed once, at the front.
+        // A cover from the middle of the history comes back, for example restored by an admin: it is listed once, at
+        // the front.
         var again = new CoverRecord { Id = middle.Id, CreatedAt = Day(3), Origin = middle.Origin, Mode = middle.Mode };
-        _store.AddToHistory(state, again, 8);
+        AddToHistory(state, again, 8);
 
         Assert.Equal(new[] { middle.Id, newest.Id, oldest.Id }, state.History.Select(r => r.Id));
         Assert.Same(again, state.History[0]);
@@ -314,8 +335,14 @@ public sealed class CoverStoreTests : IDisposable
 
         // When the history is full and its oldest cover comes back (as a record of its own, dated a day later than
         // all the others), nothing is dropped and no file is lost.
-        var oldestAgain = new CoverRecord { Id = oldest.Id, CreatedAt = Day(4), Origin = oldest.Origin, Mode = oldest.Mode };
-        _store.AddToHistory(state, oldestAgain, 3);
+        var oldestAgain = new CoverRecord
+        {
+            Id = oldest.Id,
+            CreatedAt = Day(4),
+            Origin = oldest.Origin,
+            Mode = oldest.Mode,
+        };
+        AddToHistory(state, oldestAgain, 3);
 
         Assert.Equal(new[] { oldest.Id, middle.Id, newest.Id }, state.History.Select(r => r.Id));
         AssertNewestFirst(state);
@@ -331,13 +358,13 @@ public sealed class CoverStoreTests : IDisposable
         var current = RecordWithFiles(Library, Day(0));
         foreach (var cover in new[] { current, RecordWithFiles(Library, Day(1)), RecordWithFiles(Library, Day(2)) })
         {
-            _store.AddToHistory(state, cover, 3);
+            AddToHistory(state, cover, 3);
         }
 
         // An old cover was restored and pinned, so the oldest entry of the history is the one on the library.
         state.CurrentCoverId = current.Id;
 
-        _store.AddToHistory(state, RecordWithFiles(Library, Day(3)), 3);
+        AddToHistory(state, RecordWithFiles(Library, Day(3)), 3);
 
         Assert.DoesNotContain(state.History, r => r.Id == current.Id);
         AssertFilesKept(Library, current);
@@ -351,9 +378,9 @@ public sealed class CoverStoreTests : IDisposable
         state.Original = original;
 
         // The original is listed in the history too, as when it is restored, and then falls off the end.
-        _store.AddToHistory(state, original, 2);
-        _store.AddToHistory(state, RecordWithFiles(Library, Day(1)), 2);
-        _store.AddToHistory(state, RecordWithFiles(Library, Day(2)), 2);
+        AddToHistory(state, original, 2);
+        AddToHistory(state, RecordWithFiles(Library, Day(1)), 2);
+        AddToHistory(state, RecordWithFiles(Library, Day(2)), 2);
 
         Assert.DoesNotContain(state.History, r => r.Id == original.Id);
         AssertFilesKept(Library, original);
@@ -366,9 +393,10 @@ public sealed class CoverStoreTests : IDisposable
         var twice = RecordWithFiles(Library, Day(0));
         state.History.Add(twice);
         state.History.Add(RecordWithFiles(Library, Day(1)));
-        state.History.Add(new CoverRecord { Id = twice.Id, CreatedAt = twice.CreatedAt }); // as a hand-edited file can list it
+        // As a hand-edited file can list it.
+        state.History.Add(new CoverRecord { Id = twice.Id, CreatedAt = twice.CreatedAt });
 
-        _store.AddToHistory(state, RecordWithFiles(Library, Day(2)), 3);
+        AddToHistory(state, RecordWithFiles(Library, Day(2)), 3);
 
         Assert.Equal(3, state.History.Count);
         Assert.Contains(state.History, r => r.Id == twice.Id);
@@ -393,11 +421,13 @@ public sealed class CoverStoreTests : IDisposable
         Assert.Equal(5, state.Slots.Length);
         Assert.Empty(state.History);
 
-        // Settings that cannot be read must never let a schedule replace the cover: the library is pinned, and says why.
+        // Settings that cannot be read must never let a schedule replace the cover: the library is pinned, and says
+        // why.
         Assert.True(state.Pinned);
         Assert.Equal(UnreadableNotice, state.Notice);
         Assert.NotNull(state.NoticeAt);
-        Assert.InRange(state.NoticeAt.Value, before.AddMinutes(-1), after.AddMinutes(1)); // now, give or take a clock adjustment
+        // Now, give or take a clock adjustment.
+        Assert.InRange(state.NoticeAt.Value, before.AddMinutes(-1), after.AddMinutes(1));
 
         Assert.Equal(corrupt, File.ReadAllText(StatePath(Library) + ".bad"));
         Assert.Single(log.Entries, entry => entry.Level == LogLevel.Warning);
@@ -568,7 +598,8 @@ public sealed class CoverStoreTests : IDisposable
         AssertSame(changed, _store.Load(fresh));
 
         // The asynchronous form starts a new library from the default mode that is passed as well.
-        var freshToo = await _store.UpdateAsync(Guid.NewGuid(), (_, _) => Task.CompletedTask, CoverMode.Manual).WaitAsync(Patience);
+        var freshToo = await _store.UpdateAsync(Guid.NewGuid(), (_, _) => Task.CompletedTask, CoverMode.Manual)
+            .WaitAsync(Patience);
         Assert.Equal(CoverMode.Manual, freshToo.Mode);
         Assert.Equal(CoverMode.Manual, _store.Load(freshToo.LibraryId).Mode);
     }
@@ -584,7 +615,8 @@ public sealed class CoverStoreTests : IDisposable
             var id = added[i];
             if (i % 2 == 0)
             {
-                // A thread of its own for each blocking call, so that waiting for a turn cannot starve the awaiting ones.
+                // A thread of its own for each blocking call, so that waiting for a turn cannot starve the awaiting
+                // ones.
                 updates.Add(Task.Factory.StartNew(
                     () => _store.Update(Library, state => state.History.Add(new CoverRecord { Id = id })),
                     CancellationToken.None,
@@ -630,7 +662,8 @@ public sealed class CoverStoreTests : IDisposable
 
         // A library with no state file gets none.
         var fresh = Guid.NewGuid();
-        Assert.Throws<InvalidOperationException>(() => _store.Update(fresh, _ => throw new InvalidOperationException("the change failed")));
+        Assert.Throws<InvalidOperationException>(
+            () => _store.Update(fresh, _ => throw new InvalidOperationException("the change failed")));
         Assert.False(Directory.Exists(LibraryFolder(fresh)));
 
         // And the library is not left locked: the next update runs.
@@ -749,7 +782,10 @@ public sealed class CoverStoreTests : IDisposable
     private static DateTimeOffset Day(int n) => new DateTimeOffset(2026, 9, 1, 3, 0, 0, TimeSpan.Zero).AddDays(n);
 
     // A record with both of its files on disk, as the renderer leaves it.
-    private CoverRecord RecordWithFiles(Guid library, DateTimeOffset createdAt, CoverOrigin origin = CoverOrigin.Generated)
+    private CoverRecord RecordWithFiles(
+        Guid library,
+        DateTimeOffset createdAt,
+        CoverOrigin origin = CoverOrigin.Generated)
     {
         var record = new CoverRecord
         {
@@ -767,7 +803,9 @@ public sealed class CoverStoreTests : IDisposable
 
     // The history is newest first by position, and in these tests by date as well.
     private static void AssertNewestFirst(LibraryCoverState state) =>
-        Assert.Equal(state.History.OrderByDescending(r => r.CreatedAt).Select(r => r.Id), state.History.Select(r => r.Id));
+        Assert.Equal(
+            state.History.OrderByDescending(r => r.CreatedAt).Select(r => r.Id),
+            state.History.Select(r => r.Id));
 
     private void AssertFilesKept(Guid library, CoverRecord cover)
     {
@@ -785,7 +823,7 @@ public sealed class CoverStoreTests : IDisposable
     {
         var state = _store.Load(library);
         var cover = RecordWithFiles(library, Day(0));
-        _store.AddToHistory(state, cover, 8);
+        AddToHistory(state, cover, 8);
         _store.Save(state);
         return cover;
     }
@@ -922,6 +960,12 @@ public sealed class CoverStoreTests : IDisposable
         Assert.Equal(expected.TitleIds, actual.TitleIds);
     }
 
+    // The history tests never apply an image.
+    private sealed class NoImages : ILibraryImages
+    {
+        public ILibraryImage? Find(Guid libraryId) => throw new NotSupportedException();
+    }
+
     private sealed class RecordingLogger : ILogger<CoverStore>
     {
         public List<(LogLevel Level, string Message)> Entries { get; } = new();
@@ -931,7 +975,12 @@ public sealed class CoverStoreTests : IDisposable
 
         public bool IsEnabled(LogLevel logLevel) => true;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
             Entries.Add((logLevel, formatter(state, exception)));
     }
 

@@ -228,7 +228,10 @@ public sealed class FrameScorerTests
     [InlineData(36, 0, true)]
     [InlineData(40, 9, true)]   // rows at 3.5 percent luma still count as black
     [InlineData(40, 11, false)] // rows at 4.3 percent luma do not
-    public void More_than_35_percent_of_rows_under_4_percent_luma_halves_the_score(int barRows, byte barGray, bool halved)
+    public void More_than_35_percent_of_rows_under_4_percent_luma_halves_the_score(
+        int barRows,
+        byte barGray,
+        bool halved)
     {
         // 100 rows, so a row is a percent. A bar at the top, flat mid-gray under it.
         const int height = 100;

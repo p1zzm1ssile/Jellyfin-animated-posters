@@ -699,7 +699,9 @@
                 const state = await request('GET', API + 'Libraries/' + id);
                 // A later Edit click, or Close, won meanwhile.
                 if (ticket !== page.editorTicket) return;
-                page.editor = { id, state: null, draft: null, items: new Map(), openSlot: null, slotKeys: new Set() };
+                page.editor = {
+                    id, state: null, draft: null, items: new Map(), openSlot: null, slotKeys: new Set(), shown: 0
+                };
                 $('lcm-editor').hidden = false;
                 say('editor', '');
                 await showEditorState(state);
@@ -799,11 +801,13 @@
 
         /**
          * Shows a library's state in the editor, when the editor still shows that library. With keepEdits and edits
-         * not saved yet, the form keeps them and only the cover, history, buttons and slots are drawn again.
+         * not saved yet, the form keeps them and only the cover, history, buttons and slots are drawn again. Calls
+         * can overlap while the titles load; only the last one draws, so an older state never covers a newer one.
          */
         async function showEditorState(state, keepEdits) {
             const editor = page.editor;
             if (!editor || !state || !sameId(state.LibraryId, editor.id)) return;
+            const call = ++editor.shown;
             const keep = keepEdits && isDirty();
             const draft = keep ? editor.draft : draftOf(state);
             const ids = coverIds(state).concat(draft.Slots.map((s) => s.ItemId).filter(Boolean));
@@ -812,8 +816,8 @@
             } catch (err) {
                 tell(editor.id, 'editor', 'The titles could not be read: ' + err.message, 'error');
             }
-            // The admin may have switched to another library while the titles loaded.
-            if (page.editor !== editor) return;
+            // The admin may have switched to another library, or a newer state arrived, while the titles loaded.
+            if (page.editor !== editor || editor.shown !== call) return;
             editor.state = state;
             if (keep) {
                 renderPreview();
