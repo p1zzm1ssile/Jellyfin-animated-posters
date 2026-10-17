@@ -41,6 +41,7 @@ namespace Jellyfin.Plugin.LibraryCoverMaker.Covers;
 /// free. When the watcher records an Edit images upload as an Uploaded cover, it also sets
 /// <see cref="LibraryCoverState.AppliedPrimaryPath"/> and <see cref="LibraryCoverState.AppliedPrimaryModified"/> to
 /// that image; otherwise the next apply in a library without an original would keep the upload as the original.
+/// <see cref="KeepOutsideUploadAsync"/> does both.
 /// </para>
 /// <para>
 /// Files: a generated cover is its animated WebP and its still JPEG (<see cref="CoverStore.AnimatedPath"/>,
@@ -300,7 +301,7 @@ public sealed class CoverApplier
             CreatedAt = DateTimeOffset.UtcNow,
             Origin = CoverOrigin.Uploaded,
         };
-        var path = Path.ChangeExtension(_store.AnimatedPath(libraryId, record.Id), extension);
+        var path = UploadPath(libraryId, record.Id, extension);
 
         using var run = StartApply(libraryId);
         try
@@ -333,6 +334,109 @@ public sealed class CoverApplier
 
         run.Saved();
     }
+
+    /// <summary>
+    /// Keeps the library's Primary image, which was set outside the plugin (in Jellyfin's Edit images dialog), as an
+    /// <see cref="CoverOrigin.Uploaded"/> cover, the way <see cref="SaveUploadAsync"/> keeps an upload: copied into the
+    /// store, made the current cover, added to the history, and the library pinned, with <paramref name="notice"/> on
+    /// its card. The image is recorded as the one the plugin applied
+    /// (<see cref="LibraryCoverState.AppliedPrimaryPath"/> and <see cref="LibraryCoverState.AppliedPrimaryModified"/>),
+    /// so a later apply never keeps it as the original.
+    /// Nothing is applied: the image already is the library's Primary.
+    /// </summary>
+    /// <param name="libraryId">The library.</param>
+    /// <param name="isOutsideChange">
+    /// Asked inside the library's change, with the state and the image as they are then, whether the image is one to
+    /// keep. When it says no, or the library has no Primary image that is a file on this server, nothing changes.
+    /// </param>
+    /// <param name="notice">What the library's card says happened.</param>
+    /// <param name="ct">Cancels the copy; once the state is being saved it runs to its end.</param>
+    /// <returns>Whether the image was kept.</returns>
+    internal async Task<bool> KeepOutsideUploadAsync(
+        Guid libraryId,
+        Func<LibraryCoverState, PrimaryImage, bool> isOutsideChange,
+        string notice,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(isOutsideChange);
+
+        // Only checked here, before the change: the change itself always saves, so asking first spares a library
+        // with nothing to keep a state file it did not have.
+        var config = _config();
+        if (CurrentPrimary(libraryId) is not { } seen
+            || !isOutsideChange(_store.Load(libraryId, config.DefaultMode), seen))
+        {
+            return false;
+        }
+
+        string? stored = null;
+        var dropped = new List<Guid>();
+        try
+        {
+            await _store.UpdateAsync(
+                libraryId,
+                async (state, token) =>
+                {
+                    var image = CurrentPrimary(libraryId);
+                    if (image is null || !isOutsideChange(state, image))
+                    {
+                        return;
+                    }
+
+                    var record = new CoverRecord
+                    {
+                        Id = Guid.NewGuid(),
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        Origin = CoverOrigin.Uploaded,
+                        Mode = state.Mode,
+                    };
+                    var extension = Path.GetExtension(image.Path).ToLowerInvariant();
+                    var path = UploadPath(libraryId, record.Id, extension.Length > 1 ? extension : ".jpg");
+                    var source = new FileStream(
+                        image.Path,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.Read,
+                        BufferSize,
+                        FileOptions.Asynchronous);
+                    await using (source.ConfigureAwait(false))
+                    {
+                        await StoreAsync(source, path, Path.GetExtension(path), token).ConfigureAwait(false);
+                    }
+
+                    stored = path;
+                    state.CurrentCoverId = record.Id;
+                    state.Pinned = true;
+                    state.AppliedPrimaryPath = image.Path;
+                    state.AppliedPrimaryModified = image.Modified;
+                    state.Notice = notice;
+                    state.NoticeAt = DateTimeOffset.UtcNow;
+                    dropped.AddRange(AddToHistory(state, record));
+                },
+                config.DefaultMode,
+                ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            // The state does not list the copy, so it goes.
+            if (stored is not null)
+            {
+                TryDelete(stored);
+            }
+
+            throw;
+        }
+
+        DeleteCovers(libraryId, dropped);
+        return stored is not null;
+    }
+
+    /// <summary>
+    /// The library's Primary image as Jellyfin has it now, when it is a file on this server; null when the library has
+    /// none, has one elsewhere, or is gone.
+    /// </summary>
+    internal PrimaryImage? CurrentPrimary(Guid libraryId) =>
+        _images.Find(libraryId)?.Primary() is { IsLocalFile: true } image && File.Exists(image.Path) ? image : null;
 
     /// <summary>
     /// Applies the <paramref name="format"/> version of every library's current cover that the plugin composed,
@@ -404,6 +508,10 @@ public sealed class CoverApplier
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)) + Path.DirectorySeparatorChar;
         return Path.GetFullPath(path).StartsWith(root, StringComparison.Ordinal);
     }
+
+    // Where an upload is stored: named by its cover id, with the extension of its image.
+    private string UploadPath(Guid libraryId, Guid coverId, string extension) =>
+        Path.ChangeExtension(_store.AnimatedPath(libraryId, coverId), extension);
 
     private static bool IsInUse(LibraryCoverState state, Guid coverId) =>
         state.CurrentCoverId == coverId

@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Data.Events.Users;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.LibraryCoverMaker;
 using Jellyfin.Plugin.LibraryCoverMaker.Covers;
@@ -17,6 +18,7 @@ using Jellyfin.Plugin.LibraryCoverMaker.Sources;
 using Jellyfin.Plugin.LibraryCoverMaker.Storage;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.MediaSegments;
@@ -425,7 +427,7 @@ public sealed class CoverRulesTests : IDisposable
     }
 
     [Fact]
-    public void Registrator_registers_every_service_the_plugin_builds_on_as_a_singleton()
+    public void Registrator_registers_every_service_as_a_singleton_and_the_event_consumers_as_scoped()
     {
         var services = new ServiceCollection();
         PluginServiceRegistrator.AddServices(services);
@@ -442,8 +444,19 @@ public sealed class CoverRulesTests : IDisposable
             Assert.Equal(ServiceLifetime.Singleton, descriptor.Lifetime);
         }
 
-        Assert.All(services, d => Assert.Equal(ServiceLifetime.Singleton, d.Lifetime));
-        Assert.Equal(2, services.Count(d => d.ServiceType == typeof(IHostedService)));
+        // The event consumers are scoped, the way Jellyfin registers its own: it resolves them in a scope per event.
+        Type[] consumers = [typeof(IEventConsumer<UserUpdatedEventArgs>), typeof(IEventConsumer<UserCreatedEventArgs>)];
+        foreach (var type in consumers)
+        {
+            var descriptor = Assert.Single(services, d => d.ServiceType == type);
+            Assert.Equal(ServiceLifetime.Scoped, descriptor.Lifetime);
+            Assert.Equal(typeof(AudienceChangeConsumer), descriptor.ImplementationType);
+        }
+
+        Assert.All(
+            services.Where(d => !consumers.Contains(d.ServiceType)),
+            d => Assert.Equal(ServiceLifetime.Singleton, d.Lifetime));
+        Assert.Equal(3, services.Count(d => d.ServiceType == typeof(IHostedService)));
     }
 
     [Fact]
@@ -479,9 +492,16 @@ public sealed class CoverRulesTests : IDisposable
             Assert.NotNull(ActivatorUtilities.CreateInstance<RefreshCoversTask>(provider));
 
             var hosted = provider.GetServices<IHostedService>().ToList();
-            Assert.Equal(2, hosted.Count);
+            Assert.Equal(3, hosted.Count);
             Assert.Same(queue, hosted[0]);
             Assert.IsType<RenewalScheduler>(hosted[1]);
+            Assert.IsType<PrimaryImageWatcher>(hosted[2]);
+
+            using var scope = provider.CreateScope();
+            Assert.IsType<AudienceChangeConsumer>(
+                scope.ServiceProvider.GetRequiredService<IEventConsumer<UserUpdatedEventArgs>>());
+            Assert.IsType<AudienceChangeConsumer>(
+                scope.ServiceProvider.GetRequiredService<IEventConsumer<UserCreatedEventArgs>>());
         }
         finally
         {
@@ -515,6 +535,11 @@ public sealed class CoverRulesTests : IDisposable
     // A stand-in for a Jellyfin interface: every call answers with the default of its return type, unless the handler
     // gives an answer.
     private static T Fake<T>(Func<MethodInfo, object?>? answer = null)
+        where T : class =>
+        Fake<T>((call, _) => answer?.Invoke(call));
+
+    // The same, for a handler that also reads the arguments of the call.
+    private static T Fake<T>(Func<MethodInfo, object?[]?, object?> answer)
         where T : class
     {
         var proxy = DispatchProxy.Create<T, FakeProxy>();
@@ -524,11 +549,11 @@ public sealed class CoverRulesTests : IDisposable
 
     private class FakeProxy : DispatchProxy
     {
-        public Func<MethodInfo, object?>? Answer { get; set; }
+        public Func<MethodInfo, object?[]?, object?>? Answer { get; set; }
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
-            var given = Answer?.Invoke(targetMethod!);
+            var given = Answer?.Invoke(targetMethod!, args);
             if (given is not null)
             {
                 return given;
@@ -1356,6 +1381,389 @@ public sealed class CoverRulesTests : IDisposable
         await _applier.ReapplyAllAsync(PrimaryFormat.Still, CancellationToken.None);
 
         Assert.Single(_images.Saved);
+    }
+
+    // ---- Reactions to users and to Jellyfin's Edit images dialog ---------------------------------------------------
+
+    [Fact]
+    public async Task Tightening_a_policy_queues_a_pinned_generated_cover_at_once()
+    {
+        var kid = Viewer("kid");
+        var access = new FakeAccess { Viewers = [kid] };
+        access.HiddenFrom[kid.Id] = [Hidden];
+        access.Names[Hidden] = "Film 2";
+        var current = Record(CoverOrigin.Generated, TitleA, Hidden);
+        Seed(state =>
+        {
+            state.Pinned = true;
+            state.History.Add(current);
+            state.CurrentCoverId = current.Id;
+        });
+        var (consumer, queued) = Consumer(access);
+
+        await consumer.OnEvent(new UserUpdatedEventArgs(kid));
+
+        Assert.Equal(new[] { (Library, BuildReason.AudienceChanged) }, queued);
+        var state = _store.Load(Library);
+        Assert.Equal("Queued for a new cover because kid may not see \"Film 2\".", state.Notice);
+        Assert.NotNull(state.NoticeAt);
+        Assert.Equal(current.Id, state.CurrentCoverId); // the build replaces it, not the check
+        Assert.True(state.Pinned);
+    }
+
+    [Fact]
+    public async Task A_new_user_who_may_not_see_a_locked_title_unlocks_it_and_leaves_an_upload_alone()
+    {
+        var kid = Viewer("kid");
+        var access = new FakeAccess { Viewers = [Viewer("admin"), kid] };
+        access.HiddenFrom[kid.Id] = [Hidden];
+        access.Names[Hidden] = "Film 2";
+        var upload = Record(CoverOrigin.Uploaded, Hidden);
+        Seed(state =>
+        {
+            state.Pinned = true;
+            state.History.Add(upload);
+            state.CurrentCoverId = upload.Id;
+            state.Slots[0].ItemId = TitleA;
+            state.Slots[1].ItemId = Hidden;
+            state.Slots[1].MomentSeconds = 12;
+        });
+        var (consumer, queued) = Consumer(access);
+
+        await consumer.OnEvent(new UserCreatedEventArgs(kid));
+
+        var state = _store.Load(Library);
+        Assert.Equal(TitleA, state.Slots[0].ItemId);
+        Assert.Null(state.Slots[1].ItemId);
+        Assert.Null(state.Slots[1].MomentSeconds);
+        Assert.Equal("Unlocked \"Film 2\" because kid may not see it.", state.Notice);
+        Assert.Equal(upload.Id, state.CurrentCoverId);
+        Assert.Single(state.History);
+        Assert.Equal(new[] { (Library, BuildReason.AudienceChanged) }, queued);
+    }
+
+    [Fact]
+    public async Task A_title_hidden_from_another_viewer_or_gone_is_named_without_blaming_the_user()
+    {
+        var kid = Viewer("kid");
+        var teen = Viewer("teen");
+        var access = new FakeAccess { Viewers = [kid, teen] };
+        access.HiddenFrom[teen.Id] = [Hidden];
+        access.Missing.Add(TitleB);
+        access.Names[Hidden] = "Film 2";
+        var current = Record(CoverOrigin.Generated, Hidden, TitleB);
+        Seed(state =>
+        {
+            state.History.Add(current);
+            state.CurrentCoverId = current.Id;
+        });
+        var (consumer, queued) = Consumer(access);
+
+        await consumer.OnEvent(new UserUpdatedEventArgs(kid));
+
+        Assert.Single(queued);
+        Assert.Equal(
+            "Queued for a new cover because some viewers of this library may not see \"Film 2\" and a title is no "
+            + "longer in the library.",
+            _store.Load(Library).Notice);
+    }
+
+    [Fact]
+    public async Task A_library_the_user_does_not_see_or_a_cover_that_keeps_the_rule_is_left_alone()
+    {
+        var kid = Viewer("kid");
+        var access = new FakeAccess { Viewers = [Viewer("admin")] };
+        access.HiddenFrom[kid.Id] = [Hidden];
+        var current = Record(CoverOrigin.Generated, Hidden);
+        Seed(state =>
+        {
+            state.History.Add(current);
+            state.CurrentCoverId = current.Id;
+        });
+        var (consumer, queued) = Consumer(access);
+
+        await consumer.OnEvent(new UserUpdatedEventArgs(kid));
+        access.Viewers = [kid];
+        access.HiddenFrom[kid.Id] = [];
+        await consumer.OnEvent(new UserUpdatedEventArgs(kid));
+
+        Assert.Empty(queued);
+        Assert.Null(_store.Load(Library).Notice);
+    }
+
+    [Fact]
+    public async Task A_library_Jellyfin_no_longer_has_is_not_checked()
+    {
+        var kid = Viewer("kid");
+        var access = new FakeAccess { Viewers = [kid], Exists = false };
+        access.HiddenFrom[kid.Id] = [Hidden];
+        var current = Record(CoverOrigin.Generated, Hidden);
+        Seed(state =>
+        {
+            state.History.Add(current);
+            state.CurrentCoverId = current.Id;
+        });
+        var (consumer, queued) = Consumer(access);
+
+        await consumer.OnEvent(new UserUpdatedEventArgs(kid));
+
+        Assert.Empty(queued);
+    }
+
+    [Fact]
+    public async Task A_failing_check_is_logged_never_thrown_at_Jellyfin_and_the_library_queued()
+    {
+        var kid = Viewer("kid");
+        var access = new FakeAccess { Viewers = [kid], Failure = new InvalidOperationException("database busy") };
+        Seed(_ => { });
+        var log = new CountingLogger();
+        var (consumer, queued) = Consumer(access, log);
+
+        await consumer.OnEvent(new UserUpdatedEventArgs(kid));
+
+        Assert.Equal(new[] { (Library, BuildReason.AudienceChanged) }, queued);
+        Assert.Equal(1, log.Warnings);
+    }
+
+    [Fact]
+    public async Task A_library_whose_check_fails_is_queued_and_the_others_are_still_checked()
+    {
+        var kid = Viewer("kid");
+        var other = Guid.Parse("7b2e4d3f-9c5e-4f60-8b1c-2d3e4f5a6b7c");
+        var access = new FakeAccess { Viewers = [kid] };
+        access.HiddenFrom[kid.Id] = [Hidden];
+        access.Names[Hidden] = "Film 2";
+        access.FailFor.Add(Library);
+        foreach (var id in new[] { Library, other })
+        {
+            var current = Record(CoverOrigin.Generated, Hidden);
+            _store.Update(id, state =>
+            {
+                state.History.Add(current);
+                state.CurrentCoverId = current.Id;
+            });
+        }
+
+        var log = new CountingLogger();
+        var (consumer, queued) = Consumer(access, log);
+
+        await consumer.OnEvent(new UserUpdatedEventArgs(kid));
+
+        // Whatever order the store lists them in.
+        var expected = new[] { (Library, BuildReason.AudienceChanged), (other, BuildReason.AudienceChanged) };
+        Assert.Equal(expected.OrderBy(q => q.Item1), queued.OrderBy(q => q.Item1));
+        Assert.Equal(1, log.Warnings);
+        Assert.Null(_store.Load(Library).Notice);
+        Assert.Equal("Queued for a new cover because kid may not see \"Film 2\".", _store.Load(other).Notice);
+    }
+
+    [Fact]
+    public async Task Edit_images_upload_is_kept_as_an_uploaded_cover_and_pins_the_library()
+    {
+        Titles(TitleA);
+        await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
+        var generated = _store.Load(Library).CurrentCoverId;
+        var watcher = Watcher();
+
+        var path = _images.SetCurrent("folder.png", [9, 8, 7], automatic: false);
+        watcher.OnItemUpdated(null, Updated(ItemUpdateType.ImageUpdate));
+        await watcher.Pending.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var state = _store.Load(Library);
+        Assert.True(state.Pinned);
+        var current = state.History.Single(cover => cover.Id == state.CurrentCoverId);
+        Assert.Equal(CoverOrigin.Uploaded, current.Origin);
+        Assert.Equal(generated, state.History[1].Id);
+        var file = CoverApplier.CoverFile(_store, Library, current, PrimaryFormat.Animated);
+        Assert.NotNull(file);
+        Assert.Equal(Path.Combine(LibraryFolder, "covers", current.Id.ToString("N") + ".png"), file.Value.Path);
+        Assert.Equal(new byte[] { 9, 8, 7 }, File.ReadAllBytes(file.Value.Path));
+        Assert.Equal(path, state.AppliedPrimaryPath);
+        Assert.Equal(_images.Current!.Modified, state.AppliedPrimaryModified);
+        Assert.Equal(PrimaryImageWatcher.EditImagesNotice, state.Notice);
+        Assert.NotNull(state.NoticeAt);
+        Assert.Single(_images.Saved); // nothing applied again: the image is already the Primary
+    }
+
+    [Fact]
+    public async Task Edit_images_upload_on_an_untouched_library_is_never_kept_as_its_original()
+    {
+        Titles(TitleA);
+        var watcher = Watcher();
+        _images.SetCurrent("folder.jpg", [5, 5], automatic: false);
+        watcher.OnItemUpdated(null, Updated(ItemUpdateType.ImageUpdate));
+        await watcher.Pending.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(_store.Load(Library).Pinned);
+
+        _store.Update(Library, state => state.Pinned = false);
+        await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
+
+        var state = _store.Load(Library);
+        Assert.Null(state.Original);
+        Assert.Equal(CoverOrigin.Generated, state.History[0].Origin);
+        Assert.Equal(CoverOrigin.Uploaded, state.History[1].Origin);
+    }
+
+    [Fact]
+    public async Task The_plugin_own_apply_is_not_taken_for_an_upload_and_does_not_wait_for_the_store()
+    {
+        Titles(TitleA);
+        var watcher = Watcher();
+        _images.OnPersist = () => watcher.OnItemUpdated(null, Updated(ItemUpdateType.ImageUpdate));
+
+        await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        _images.OnPersist = null;
+
+        // A later event about the same image (a refresh of the library) changes nothing either.
+        watcher.OnItemUpdated(null, Updated(ItemUpdateType.ImageUpdate | ItemUpdateType.MetadataImport));
+        await watcher.Pending.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var state = _store.Load(Library);
+        Assert.False(state.Pinned);
+        Assert.Null(state.Notice);
+        Assert.Equal(CoverOrigin.Generated, Assert.Single(state.History).Origin);
+    }
+
+    [Fact]
+    public async Task Automatic_images_other_updates_and_old_images_are_not_uploads()
+    {
+        var watcher = Watcher(() => DateTime.UtcNow.AddHours(1));
+
+        _images.SetCurrent("collage.jpg", [1], automatic: true);
+        watcher.OnItemUpdated(null, Updated(ItemUpdateType.ImageUpdate));
+        _images.SetCurrent("folder.jpg", [2], automatic: false);
+        watcher.OnItemUpdated(null, Updated(ItemUpdateType.MetadataImport));
+
+        // An image an admin set long before, seen again when the Logo changes: the library never had a plugin cover,
+        // so only an image written just now counts.
+        watcher.OnItemUpdated(null, Updated(ItemUpdateType.ImageUpdate));
+        watcher.OnItemUpdated(null, new ItemChangeEventArgs { Item = new Movie { Id = Library } });
+        await watcher.Pending.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Empty(_store.KnownLibraries());
+    }
+
+    [Theory]
+    [InlineData("folder.webp", 0.5, false)]
+    [InlineData("folder.webp", -0.5, false)]
+    [InlineData("folder.webp", 2, true)]
+    [InlineData("folder.png", 0, true)]
+    public void An_image_is_an_outside_change_when_its_path_or_time_differs(string name, double seconds, bool outside)
+    {
+        var applied = new DateTime(2026, 10, 16, 3, 0, 0, DateTimeKind.Utc);
+        var state = new LibraryCoverState
+        {
+            LibraryId = Library,
+            AppliedPrimaryPath = "/config/root/default/Movies/folder.webp",
+            AppliedPrimaryModified = applied,
+        };
+        var image = new PrimaryImage(
+            "/config/root/default/Movies/" + name, applied.AddSeconds(seconds), IsLocalFile: true, Automatic: false);
+
+        // Long after the apply: the window for untouched libraries plays no part here.
+        Assert.Equal(outside, PrimaryImageWatcher.IsOutsideChange(state, image, applied.AddDays(3)));
+    }
+
+    [Fact]
+    public async Task A_Logo_upload_on_a_library_with_a_plugin_cover_does_not_pin_it()
+    {
+        Titles(TitleA);
+        await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
+        var before = _store.Load(Library);
+        var watcher = Watcher();
+
+        // The dialog saved a Logo: Jellyfin raises the same ImageUpdate, and the Primary is the plugin's cover still.
+        watcher.OnItemUpdated(null, Updated(ItemUpdateType.ImageUpdate));
+        await watcher.Pending.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var state = _store.Load(Library);
+        Assert.False(state.Pinned);
+        Assert.Null(state.Notice);
+        Assert.Equal(before.CurrentCoverId, state.CurrentCoverId);
+        Assert.Single(state.History);
+    }
+
+    [Fact]
+    public async Task Watcher_follows_the_library_manager_from_start_to_stop()
+    {
+        var handlers = new List<string>();
+        var libraries = Fake<ILibraryManager>((call, args) =>
+        {
+            if (call.Name is "add_ItemUpdated" or "remove_ItemUpdated" && args?[0] is EventHandler<ItemChangeEventArgs>)
+            {
+                handlers.Add(call.Name);
+            }
+
+            return null;
+        });
+        var watcher = new PrimaryImageWatcher(
+            libraries, _applier, NullLogger<PrimaryImageWatcher>.Instance, () => DateTime.UtcNow);
+
+        await watcher.StartAsync(CancellationToken.None);
+        Assert.Equal(new[] { "add_ItemUpdated" }, handlers);
+        await watcher.StopAsync(CancellationToken.None);
+        Assert.Equal(new[] { "add_ItemUpdated", "remove_ItemUpdated" }, handlers);
+    }
+
+    private static User Viewer(string name) => new(name, "Default", "Default") { Id = Guid.NewGuid() };
+
+    private void Seed(Action<LibraryCoverState> change) => _store.Update(Library, change);
+
+    private (AudienceChangeConsumer Consumer, List<(Guid, BuildReason)> Queued) Consumer(
+        FakeAccess access,
+        Microsoft.Extensions.Logging.ILogger? log = null)
+    {
+        var queued = new List<(Guid, BuildReason)>();
+        var consumer = new AudienceChangeConsumer(
+            access,
+            _store,
+            (id, reason) => queued.Add((id, reason)),
+            log ?? NullLogger.Instance,
+            () => _config);
+        return (consumer, queued);
+    }
+
+    private PrimaryImageWatcher Watcher(Func<DateTime>? utcNow = null) => new(
+        Fake<ILibraryManager>(),
+        _applier,
+        NullLogger<PrimaryImageWatcher>.Instance,
+        utcNow ?? (() => DateTime.UtcNow));
+
+    private static ItemChangeEventArgs Updated(ItemUpdateType reason) =>
+        new() { Item = new CollectionFolder { Id = Library }, UpdateReason = reason };
+
+    /// <summary>Who sees the library and what each of them may see, without a server.</summary>
+    private sealed class FakeAccess : IViewerAccess
+    {
+        public IReadOnlyList<User> Viewers { get; set; } = [];
+
+        public Dictionary<Guid, Guid[]> HiddenFrom { get; } = new();
+
+        public HashSet<Guid> Missing { get; } = new();
+
+        public Dictionary<Guid, string> Names { get; } = new();
+
+        public bool Exists { get; set; } = true;
+
+        public Exception? Failure { get; set; }
+
+        // Libraries whose check fails, whatever Failure says.
+        public HashSet<Guid> FailFor { get; } = new();
+
+        public bool LibraryExists(Guid libraryId) => Exists;
+
+        public IReadOnlyList<User> ViewersOf(Guid libraryId) =>
+            Failure is not null ? throw Failure
+            : FailFor.Contains(libraryId) ? throw new IOException("state.json is locked")
+            : Viewers;
+
+        public bool MaySee(Guid itemId, IReadOnlyList<User> users) =>
+            !Missing.Contains(itemId)
+            && users.All(user => !HiddenFrom.TryGetValue(user.Id, out var hidden) || !hidden.Contains(itemId));
+
+        public string? TitleName(Guid itemId) =>
+            Missing.Contains(itemId) ? null : Names.TryGetValue(itemId, out var name) ? name : itemId.ToString();
     }
 
     // ---- Helpers ---------------------------------------------------------------------------------------------------
