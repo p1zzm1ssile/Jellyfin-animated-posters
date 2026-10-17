@@ -159,8 +159,8 @@ public sealed class CoverApplier
                 File.Move(aside, path!, overwrite: true);
                 inOrder = true;
                 _log.LogWarning(
-                    "Library Cover Maker: an apply to library {LibraryId} was cut short, so its cover {Path} was put "
-                    + "back from {Aside}",
+                    "Jellyfin Animated Posters: an apply to library {LibraryId} was cut short, so its cover {Path} was "
+                    + "put back from {Aside}",
                     libraryId,
                     path,
                     aside);
@@ -168,7 +168,8 @@ public sealed class CoverApplier
             }
 
             _log.LogInformation(
-                "Library Cover Maker: removed {Aside}, left by an apply to library {LibraryId} that was cut short",
+                "Jellyfin Animated Posters: removed {Aside}, left by an apply to library {LibraryId} that was cut "
+                + "short",
                 aside,
                 libraryId);
             TryDelete(aside);
@@ -318,7 +319,8 @@ public sealed class CoverApplier
                 // Jellyfin's first choice was busy (a reader held a file the plugin could not move) or another type
                 // of image had another name: either way the old file stays unless it is the plugin's own.
                 _log.LogInformation(
-                    "Library Cover Maker: Jellyfin saved the cover of library {LibraryId} to {Path}, not to {Before}",
+                    "Jellyfin Animated Posters: Jellyfin saved the cover of library {LibraryId} to {Path}, not to "
+                    + "{Before}",
                     libraryId,
                     applied.Path,
                     before.Path);
@@ -344,8 +346,8 @@ public sealed class CoverApplier
                 // until the next refresh of the library. The state must still say what the library shows.
                 _log.LogError(
                     ex,
-                    "Library Cover Maker: the new Primary image of library {LibraryId} is in place but could not be "
-                    + "written to the database",
+                    "Jellyfin Animated Posters: the new Primary image of library {LibraryId} is in place but could not "
+                    + "be written to the database",
                     libraryId);
             }
         }
@@ -647,7 +649,7 @@ public sealed class CoverApplier
             if (_images.Find(libraryId) is null)
             {
                 _log.LogDebug(
-                    "Library Cover Maker: library {LibraryId} no longer exists, nothing to reapply",
+                    "Jellyfin Animated Posters: library {LibraryId} no longer exists, nothing to reapply",
                     libraryId);
                 continue;
             }
@@ -676,7 +678,8 @@ public sealed class CoverApplier
                 run.Unsaved(ex);
                 _log.LogWarning(
                     ex,
-                    "Library Cover Maker: could not apply the {Format} version of the cover of library {LibraryId}",
+                    "Jellyfin Animated Posters: could not apply the {Format} version of the cover of library "
+                    + "{LibraryId}",
                     format,
                     libraryId);
             }
@@ -773,8 +776,8 @@ public sealed class CoverApplier
         if (!current.IsLocalFile || !File.Exists(current.Path))
         {
             _log.LogWarning(
-                "Library Cover Maker: the Primary image of library {LibraryId} ({Path}) is not a file on this server, "
-                + "so it cannot be kept as the original",
+                "Jellyfin Animated Posters: the Primary image of library {LibraryId} ({Path}) is not a file on this "
+                + "server, so it cannot be kept as the original",
                 state.LibraryId,
                 current.Path);
             return null;
@@ -783,8 +786,8 @@ public sealed class CoverApplier
         if (MatchesAStoredCover(state.LibraryId, current.Path))
         {
             _log.LogWarning(
-                "Library Cover Maker: the Primary image of library {LibraryId} ({Path}) is one of the plugin's own "
-                + "covers, so it is not kept as the original",
+                "Jellyfin Animated Posters: the Primary image of library {LibraryId} ({Path}) is one of the plugin's "
+                + "own covers, so it is not kept as the original",
                 state.LibraryId,
                 current.Path);
             return null;
@@ -818,7 +821,7 @@ public sealed class CoverApplier
 
         // SaveImage deletes an automatic image, so from here this copy is the only one.
         _log.LogInformation(
-            "Library Cover Maker: kept the {Kind} Primary image of library {LibraryId} as its original ({Path})",
+            "Jellyfin Animated Posters: kept the {Kind} Primary image of library {LibraryId} as its original ({Path})",
             current.Automatic ? "automatic" : "admin-set",
             state.LibraryId,
             current.Path);
@@ -867,7 +870,7 @@ public sealed class CoverApplier
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _log.LogWarning(ex, "Library Cover Maker: could not delete {Path}", path);
+            _log.LogWarning(ex, "Jellyfin Animated Posters: could not delete {Path}", path);
         }
     }
 
@@ -923,8 +926,8 @@ public sealed class CoverApplier
         {
             _log.LogWarning(
                 ex,
-                "Library Cover Maker: could not move the current cover of library {LibraryId} ({Path}) out of the way, "
-                + "so Jellyfin writes over it",
+                "Jellyfin Animated Posters: could not move the current cover of library {LibraryId} ({Path}) out of "
+                + "the way, so Jellyfin writes over it",
                 libraryId,
                 current.Path);
             return null;
@@ -953,7 +956,7 @@ public sealed class CoverApplier
         {
             _log.LogError(
                 ex,
-                "Library Cover Maker: could not put the cover {Aside} back at {Path} after a failed save; the "
+                "Jellyfin Animated Posters: could not put the cover {Aside} back at {Path} after a failed save; the "
                 + "library's Primary image names a missing file until the next apply or refresh",
                 aside,
                 path);
@@ -978,8 +981,8 @@ public sealed class CoverApplier
             || MatchesAStoredCover(state.LibraryId, appliedPath, except: state.Original?.Id))
         {
             _log.LogInformation(
-                "Library Cover Maker: removed the earlier cover of library {LibraryId} at {Path}, which is no longer "
-                + "its Primary image",
+                "Jellyfin Animated Posters: removed the earlier cover of library {LibraryId} at {Path}, which is no "
+                + "longer its Primary image",
                 state.LibraryId,
                 appliedPath);
             TryDelete(appliedPath);
@@ -1107,8 +1110,8 @@ public sealed class CoverApplier
                 : CoverFile(_applier._store, _libraryId, _keptOriginal, PrimaryFormat.Animated)?.Path;
             _applier._log.LogError(
                 error,
-                "Library Cover Maker: library {LibraryId} shows a new cover but its state could not be saved; the "
-                + "copy of its original image, if one was made, is {Copy}",
+                "Jellyfin Animated Posters: library {LibraryId} shows a new cover but its state could not be saved; "
+                + "the copy of its original image, if one was made, is {Copy}",
                 _libraryId,
                 copy ?? "(none)");
         }

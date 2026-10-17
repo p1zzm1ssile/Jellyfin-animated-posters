@@ -15,6 +15,17 @@ public sealed class PluginTests
         Assert.Equal(Guid.Parse("ba3b88b5-029c-4a6f-90b3-734af8385652"), Guid.Parse(Plugin.PluginGuid));
 
     [Fact]
+    public void The_name_changed_but_the_files_Jellyfin_keys_on_the_assembly_did_not()
+    {
+        var plugin = (Plugin)RuntimeHelpers.GetUninitializedObject(typeof(Plugin));
+        Assert.Equal("Jellyfin Animated Posters", plugin.Name);
+
+        // Jellyfin 12 names the settings file after the DLL (BasePlugin.ConfigurationFileName is the assembly file
+        // name with .xml), not after Name, so a server that already has settings keeps them through the rename.
+        Assert.Equal("Jellyfin.Plugin.LibraryCoverMaker", typeof(Plugin).Assembly.GetName().Name);
+    }
+
+    [Fact]
     public void Configuration_defaults_match_the_spec()
     {
         var c = new PluginConfiguration();
@@ -48,7 +59,7 @@ public sealed class PluginTests
 
         var page = Assert.Single(pages, p => p.EmbeddedResourcePath.EndsWith(".html", StringComparison.Ordinal));
         Assert.Equal("LibraryCoverMaker", page.Name);
-        Assert.Equal("Library Cover Maker", page.DisplayName);
+        Assert.Equal("Jellyfin Animated Posters", page.DisplayName);
         Assert.True(page.EnableInMainMenu);
         Assert.Equal("image", page.MenuIcon);
         Assert.Equal("Jellyfin.Plugin.LibraryCoverMaker.Web.covers.html", page.EmbeddedResourcePath);

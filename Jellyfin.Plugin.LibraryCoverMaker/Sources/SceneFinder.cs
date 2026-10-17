@@ -198,7 +198,7 @@ public sealed class SceneFinder
         if (string.IsNullOrWhiteSpace(path) || !System.IO.Path.IsPathRooted(path) || !File.Exists(path))
         {
             _log.LogDebug(
-                "Library Cover Maker: {Title} has no video file to take a scene from ({Path})",
+                "Jellyfin Animated Posters: {Title} has no video file to take a scene from ({Path})",
                 video.Name,
                 path);
             return null;
@@ -206,7 +206,7 @@ public sealed class SceneFinder
 
         if (video.RunTimeTicks is not > 0)
         {
-            _log.LogDebug("Library Cover Maker: {Title} has no known length, so it gets no scene", video.Name);
+            _log.LogDebug("Jellyfin Animated Posters: {Title} has no known length, so it gets no scene", video.Name);
             return null;
         }
 
@@ -225,7 +225,7 @@ public sealed class SceneFinder
             // Without the segments the intro could end up on a cover, so the title waits for a better moment.
             _log.LogWarning(
                 ex,
-                "Library Cover Maker: the media segments of {Title} could not be read, so it gets no scene",
+                "Jellyfin Animated Posters: the media segments of {Title} could not be read, so it gets no scene",
                 video.Name);
             return null;
         }
@@ -233,7 +233,7 @@ public sealed class SceneFinder
         if (allowed.Count == 0)
         {
             _log.LogDebug(
-                "Library Cover Maker: no stretch of {Title} can hold a clip of {Seconds} s",
+                "Jellyfin Animated Posters: no stretch of {Title} can hold a clip of {Seconds} s",
                 video.Name,
                 clipSeconds);
             return null;
@@ -255,7 +255,7 @@ public sealed class SceneFinder
             }
         }
 
-        _log.LogDebug("Library Cover Maker: {Title} has no frame good enough for a cover", video.Name);
+        _log.LogDebug("Jellyfin Animated Posters: {Title} has no frame good enough for a cover", video.Name);
         return null;
     }
 
@@ -294,7 +294,7 @@ public sealed class SceneFinder
         if (string.IsNullOrWhiteSpace(path) || !System.IO.Path.IsPathRooted(path) || !File.Exists(path))
         {
             _log.LogDebug(
-                "Library Cover Maker: {Title} has no video file to measure a crop in ({Path})",
+                "Jellyfin Animated Posters: {Title} has no video file to measure a crop in ({Path})",
                 video.Name,
                 path);
             return null;
@@ -304,7 +304,7 @@ public sealed class SceneFinder
         if (probe.Size is null)
         {
             _log.LogDebug(
-                "Library Cover Maker: the picture size of {Title} is not known, so it gets no crop",
+                "Jellyfin Animated Posters: the picture size of {Title} is not known, so it gets no crop",
                 video.Name);
             return null;
         }
@@ -316,8 +316,8 @@ public sealed class SceneFinder
         }
 
         _log.LogWarning(
-            "Library Cover Maker: the clip at {Start} s of {Title} could not be measured, so it is shown without a "
-            + "crop",
+            "Jellyfin Animated Posters: the clip at {Start} s of {Title} could not be measured, so it is shown without "
+            + "a crop",
             start,
             video.Name);
         return null;
@@ -363,7 +363,7 @@ public sealed class SceneFinder
         }
         catch (InvalidOperationException ex)
         {
-            _log.LogDebug(ex, "Library Cover Maker: the video stream of {Title} could not be read", video.Name);
+            _log.LogDebug(ex, "Jellyfin Animated Posters: the video stream of {Title} could not be read", video.Name);
             return null;
         }
     }
@@ -524,7 +524,7 @@ public sealed class SceneFinder
         {
             _log.LogWarning(
                 ex,
-                "Library Cover Maker: the {Source} of {Title} could not be read, so the next source is tried",
+                "Jellyfin Animated Posters: the {Source} of {Title} could not be read, so the next source is tried",
                 source,
                 video.Name);
             return [];
@@ -575,7 +575,7 @@ public sealed class SceneFinder
             if (!File.Exists(tilePath))
             {
                 _log.LogDebug(
-                    "Library Cover Maker: the trickplay tile {Path} of {Title} does not exist",
+                    "Jellyfin Animated Posters: the trickplay tile {Path} of {Title} does not exist",
                     tilePath,
                     video.Name);
                 continue;
@@ -585,7 +585,7 @@ public sealed class SceneFinder
             if (sheet is null)
             {
                 _log.LogDebug(
-                    "Library Cover Maker: the trickplay tile {Path} of {Title} cannot be read",
+                    "Jellyfin Animated Posters: the trickplay tile {Path} of {Title} cannot be read",
                     tilePath,
                     video.Name);
                 continue;
@@ -692,7 +692,8 @@ public sealed class SceneFinder
         }
 
         _log.LogDebug(
-            "Library Cover Maker: none of the {Count} best moments ({Source}) of {Title} has a clip without a cut",
+            "Jellyfin Animated Posters: none of the {Count} best moments ({Source}) of {Title} has a clip without a "
+            + "cut",
             best.Count,
             source,
             video.Name);
@@ -732,7 +733,7 @@ public sealed class SceneFinder
             if (exit == FfmpegRunner.NotCompleted)
             {
                 _log.LogWarning(
-                    "Library Cover Maker: checking the clip at {Start} s of {Path} did not finish: {Errors}",
+                    "Jellyfin Animated Posters: checking the clip at {Start} s of {Path} did not finish: {Errors}",
                     start,
                     path,
                     Tail(errors));
@@ -742,7 +743,8 @@ public sealed class SceneFinder
             if (exit != 0 || !File.Exists(cropFile) || !File.Exists(cutFile))
             {
                 _log.LogDebug(
-                    "Library Cover Maker: ffmpeg could not read the clip at {Start} s of {Path} ({Exit}): {Errors}",
+                    "Jellyfin Animated Posters: ffmpeg could not read the clip at {Start} s of {Path} ({Exit}): "
+                    + "{Errors}",
                     start,
                     path,
                     exit,
@@ -764,7 +766,8 @@ public sealed class SceneFinder
             if (!readable)
             {
                 _log.LogDebug(
-                    "Library Cover Maker: the clip at {Start} s of {Path} gave {Seen} of the {Needed} frames it needs",
+                    "Jellyfin Animated Posters: the clip at {Start} s of {Path} gave {Seen} of the {Needed} frames it "
+                    + "needs",
                     start,
                     path,
                     sampled,
@@ -779,7 +782,7 @@ public sealed class SceneFinder
             // The result files cannot be read: nothing is known of the clip.
             _log.LogDebug(
                 ex,
-                "Library Cover Maker: the result for the clip at {Start} s of {Path} is unreadable",
+                "Jellyfin Animated Posters: the result for the clip at {Start} s of {Path} is unreadable",
                 start,
                 path);
             return (ClipOutcome.Unreadable, null);

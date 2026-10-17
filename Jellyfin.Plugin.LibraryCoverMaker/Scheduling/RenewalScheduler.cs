@@ -144,7 +144,7 @@ public sealed class RenewalScheduler : IHostedService, IDisposable
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Library Cover Maker: listing the libraries due for renewal failed");
+            _log.LogError(ex, "Jellyfin Animated Posters: listing the libraries due for renewal failed");
             return;
         }
 
@@ -181,7 +181,7 @@ public sealed class RenewalScheduler : IHostedService, IDisposable
             }
             catch (Exception ex)
             {
-                _log.LogError(ex, "Library Cover Maker: checking the renewal of library {LibraryId} failed", id);
+                _log.LogError(ex, "Jellyfin Animated Posters: checking the renewal of library {LibraryId} failed", id);
             }
         }
     }
@@ -237,8 +237,8 @@ public sealed class RenewalScheduler : IHostedService, IDisposable
         }
 
         _log.LogInformation(
-            "Library Cover Maker: the cover of library {LibraryId} breaks the parental rule, so it is queued for a new "
-            + "one",
+            "Jellyfin Animated Posters: the cover of library {LibraryId} breaks the parental rule, so it is queued for "
+            + "a new one",
             id);
         _queue.Enqueue(id, BuildReason.AudienceChanged);
     }

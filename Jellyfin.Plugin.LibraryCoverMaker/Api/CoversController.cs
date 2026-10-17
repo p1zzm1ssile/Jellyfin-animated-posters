@@ -450,7 +450,7 @@ public class CoversController : ControllerBase
             run.Unsaved(ex);
             _log.LogWarning(
                 ex,
-                "Library Cover Maker: cover {CoverId} of library {LibraryId} has no file",
+                "Jellyfin Animated Posters: cover {CoverId} of library {LibraryId} has no file",
                 coverId,
                 libraryId);
             return NotFound(Error($"The file of cover {coverId:N} is missing."));
@@ -681,7 +681,7 @@ public class CoversController : ControllerBase
             }
             catch (Exception ex)
             {
-                _log.LogError(ex, "Library Cover Maker: applying the other version of the covers failed");
+                _log.LogError(ex, "Jellyfin Animated Posters: applying the other version of the covers failed");
             }
         });
         return Accepted(saved);
@@ -852,13 +852,13 @@ public class CoversController : ControllerBase
                     {
                         log.LogError(
                             task.Exception,
-                            "Library Cover Maker: building library {LibraryId} failed",
+                            "Jellyfin Animated Posters: building library {LibraryId} failed",
                             id);
                     }
                     else if (task.IsCompletedSuccessfully)
                     {
                         log.LogInformation(
-                            "Library Cover Maker: {Reason} build of library {LibraryId}: applied {Applied}, "
+                            "Jellyfin Animated Posters: {Reason} build of library {LibraryId}: applied {Applied}, "
                             + "error {Error}",
                             reason,
                             id,

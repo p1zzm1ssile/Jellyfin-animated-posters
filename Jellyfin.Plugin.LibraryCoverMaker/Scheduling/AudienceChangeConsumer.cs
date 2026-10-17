@@ -106,7 +106,7 @@ public sealed class AudienceChangeConsumer : IEventConsumer<UserUpdatedEventArgs
         {
             _log.LogWarning(
                 ex,
-                "Library Cover Maker: could not list the libraries to check again after user {User} was {What}",
+                "Jellyfin Animated Posters: could not list the libraries to check again after user {User} was {What}",
                 user.Username,
                 what);
             return;
@@ -125,8 +125,8 @@ public sealed class AudienceChangeConsumer : IEventConsumer<UserUpdatedEventArgs
                 // that keeps the rule alone.
                 _log.LogWarning(
                     ex,
-                    "Library Cover Maker: could not check the cover of library {LibraryId} again after user {User} "
-                    + "was {What}, so it is queued for a build that checks it",
+                    "Jellyfin Animated Posters: could not check the cover of library {LibraryId} again after user "
+                    + "{User} was {What}, so it is queued for a build that checks it",
                     libraryId,
                     user.Username,
                     what);
@@ -144,7 +144,7 @@ public sealed class AudienceChangeConsumer : IEventConsumer<UserUpdatedEventArgs
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "Library Cover Maker: could not queue library {LibraryId}", libraryId);
+            _log.LogWarning(ex, "Jellyfin Animated Posters: could not queue library {LibraryId}", libraryId);
         }
     }
 
@@ -210,8 +210,8 @@ public sealed class AudienceChangeConsumer : IEventConsumer<UserUpdatedEventArgs
         if (queue)
         {
             _log.LogInformation(
-                "Library Cover Maker: the cover of library {LibraryId} breaks the parental rule since user {User} "
-                + "changed, so it is queued for a new one",
+                "Jellyfin Animated Posters: the cover of library {LibraryId} breaks the parental rule since user "
+                + "{User} changed, so it is queued for a new one",
                 libraryId,
                 user.Username);
             Enqueue(libraryId);

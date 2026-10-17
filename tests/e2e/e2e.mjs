@@ -58,7 +58,7 @@ const OWN_LABEL = 'org.library-cover-maker.e2e';
 // The server is a throwaway one that listens on 127.0.0.1 only, so the accounts are test values.
 const ADMIN = { Name: 'admin', Password: 'admin' };
 const KID = { Name: 'kid', Password: 'kid-pass' };
-const PLUGIN = { name: 'Library Cover Maker', id: 'ba3b88b5029c4a6f90b3734af8385652' };
+const PLUGIN = { name: 'Jellyfin Animated Posters', id: 'ba3b88b5029c4a6f90b3734af8385652' };
 
 // The libraries, over the folders make-media.sh fills. itemTypes are what the library's metadata options list.
 // Mixed has no collection type (Jellyfin's "mixed content"); Trick is the one library with trickplay switched on.
@@ -294,7 +294,7 @@ function pluginErrorEntries(log) {
         .filter(
             (entry) =>
                 (entry.level === 'ERR' || entry.level === 'FTL') &&
-                entry.lines.some((line) => /LibraryCoverMaker|Library Cover Maker/i.test(line))
+                entry.lines.some((line) => /LibraryCoverMaker|Jellyfin Animated Posters/i.test(line))
         )
         .map((entry) => entry.lines.join('\n'));
 }
@@ -928,7 +928,7 @@ await setupCheck('library scan finds the sample media', async () => {
 
 // ---------- Checks ----------
 
-await check('plugin Library Cover Maker is Active', async () => {
+await check('plugin Jellyfin Animated Posters is Active', async () => {
     const plugins = await ok('/Plugins');
     const plugin = plugins.find((p) => p.Name === PLUGIN.name);
     expect(plugin, `it is not listed (the server lists ${plugins.map((p) => p.Name).join(', ') || 'no plugins'})`);

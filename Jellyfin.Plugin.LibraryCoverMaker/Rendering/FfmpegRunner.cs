@@ -178,7 +178,7 @@ public sealed class FfmpegRunner
 
         // Sampling a file at many moments meets this all the time, so it is not worth more than a debug line.
         _log.LogDebug(
-            "Library Cover Maker: no frame at {Seconds} s of {Path} (ffmpeg exit {Exit}): {Errors}",
+            "Jellyfin Animated Posters: no frame at {Seconds} s of {Path} (ffmpeg exit {Exit}): {Errors}",
             atSeconds,
             mediaPath,
             run.Exit,
@@ -259,7 +259,7 @@ public sealed class FfmpegRunner
         // Joining the arguments costs something on every run: it is not done for a message nobody has asked for.
         if (_log.IsEnabled(LogLevel.Debug))
         {
-            _log.LogDebug("Library Cover Maker: running ffmpeg {Arguments}", string.Join(' ', info.ArgumentList));
+            _log.LogDebug("Jellyfin Animated Posters: running ffmpeg {Arguments}", string.Join(' ', info.ArgumentList));
         }
 
         LowerPriority(process);
@@ -305,7 +305,7 @@ public sealed class FfmpegRunner
         {
             reason = $"ffmpeg showed no sign of life for {Describe(stallTimeout)}, so it was stopped.";
             _log.LogWarning(
-                "Library Cover Maker: ffmpeg showed no sign of life for {Limit}, so it was stopped",
+                "Jellyfin Animated Posters: ffmpeg showed no sign of life for {Limit}, so it was stopped",
                 Describe(stallTimeout));
         }
         else if (verdict == Verdict.OverBudget)
@@ -313,7 +313,8 @@ public sealed class FfmpegRunner
             reason = $"ffmpeg used {Describe(_limits.ProcessorTimeBudget)} of processor time without finishing and was "
                 + "stopped.";
             _log.LogWarning(
-                "Library Cover Maker: ffmpeg used {Budget} of processor time without finishing, so it was stopped",
+                "Jellyfin Animated Posters: ffmpeg used {Budget} of processor time without finishing, so it was "
+                + "stopped",
                 Describe(_limits.ProcessorTimeBudget));
         }
 
@@ -327,8 +328,8 @@ public sealed class FfmpegRunner
         if (!drained)
         {
             _log.LogDebug(
-                "Library Cover Maker: the output of ffmpeg was still open {Grace} after it ended: something it started "
-                + "holds it",
+                "Jellyfin Animated Posters: the output of ffmpeg was still open {Grace} after it ended: something it "
+                + "started holds it",
                 Describe(_limits.StopGrace));
         }
 
@@ -438,14 +439,14 @@ public sealed class FfmpegRunner
         catch (Exception ex) when (
             ex is InvalidOperationException or Win32Exception or NotSupportedException or AggregateException)
         {
-            _log.LogDebug(ex, "Library Cover Maker: ffmpeg was already gone, or could not be stopped");
+            _log.LogDebug(ex, "Jellyfin Animated Posters: ffmpeg was already gone, or could not be stopped");
         }
 
         await WaitBrieflyAsync(process.WaitForExitAsync(CancellationToken.None)).ConfigureAwait(false);
         if (!process.HasExited)
         {
             _log.LogWarning(
-                "Library Cover Maker: ffmpeg has not exited {Grace} after it was stopped",
+                "Jellyfin Animated Posters: ffmpeg has not exited {Grace} after it was stopped",
                 Describe(_limits.StopGrace));
         }
     }
@@ -475,7 +476,7 @@ public sealed class FfmpegRunner
         {
             _log.LogDebug(
                 ex,
-                "Library Cover Maker: could not lower the priority of ffmpeg, so it runs at normal priority");
+                "Jellyfin Animated Posters: could not lower the priority of ffmpeg, so it runs at normal priority");
         }
     }
 

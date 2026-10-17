@@ -5,7 +5,7 @@ The release workflow (.github/workflows/release.yml) runs it for every version t
 but you can run it by hand too:
 
   python3 scripts/update_manifest.py --guid ba3b88b5-029c-4a6f-90b3-734af8385652 \
-      --name "Library Cover Maker" --version 1.0.0.0 --abi 12.0.0.0 \
+      --name "Jellyfin Animated Posters" --version 1.0.0.0 --abi 12.0.0.0 \
       --url https://.../LibraryCoverMaker-v1.0.0.zip --checksum <md5> \
       --changelog "First release" --owner p1zzm1ssile --description "..." --overview "..."
 """

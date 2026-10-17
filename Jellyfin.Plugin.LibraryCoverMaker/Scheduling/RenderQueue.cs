@@ -286,7 +286,7 @@ public sealed class RenderQueue : IHostedService
             if (!_libraryExists(job.LibraryId))
             {
                 _log.LogInformation(
-                    "Library Cover Maker: library {LibraryId} no longer exists, dropping its covers",
+                    "Jellyfin Animated Posters: library {LibraryId} no longer exists, dropping its covers",
                     job.LibraryId);
                 Unqueue(job);
                 _store.Forget(job.LibraryId);
@@ -304,7 +304,9 @@ public sealed class RenderQueue : IHostedService
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Library Cover Maker: building the cover of library {LibraryId} failed", job.LibraryId);
+            _log.LogError(
+                ex,
+                "Jellyfin Animated Posters: building the cover of library {LibraryId} failed", job.LibraryId);
             Finish(job, new BuildResult(false, ex.Message, 0));
         }
         finally
@@ -360,7 +362,7 @@ public sealed class RenderQueue : IHostedService
         if (!result.Applied && result.Error is not null)
         {
             _log.LogWarning(
-                "Library Cover Maker: no new cover for library {LibraryId}: {Error}",
+                "Jellyfin Animated Posters: no new cover for library {LibraryId}: {Error}",
                 job.LibraryId,
                 result.Error);
         }
@@ -371,7 +373,9 @@ public sealed class RenderQueue : IHostedService
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "Library Cover Maker: a listener of the build of {LibraryId} failed", job.LibraryId);
+            _log.LogError(
+                ex,
+                "Jellyfin Animated Posters: a listener of the build of {LibraryId} failed", job.LibraryId);
         }
 
         job.Done?.TrySetResult(result);
@@ -389,7 +393,7 @@ public sealed class RenderQueue : IHostedService
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "Library Cover Maker: could not clean {Folder}", _store.TempFolder);
+            _log.LogWarning(ex, "Jellyfin Animated Posters: could not clean {Folder}", _store.TempFolder);
         }
 
         try
@@ -403,7 +407,7 @@ public sealed class RenderQueue : IHostedService
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "Library Cover Maker: could not list the libraries to clean");
+            _log.LogWarning(ex, "Jellyfin Animated Posters: could not list the libraries to clean");
         }
     }
 
@@ -415,7 +419,7 @@ public sealed class RenderQueue : IHostedService
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "Library Cover Maker: could not check library {LibraryId} at start", id);
+            _log.LogWarning(ex, "Jellyfin Animated Posters: could not check library {LibraryId} at start", id);
         }
     }
 
@@ -454,7 +458,7 @@ public sealed class RenderQueue : IHostedService
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "Library Cover Maker: could not clean the covers of library {LibraryId}", id);
+            _log.LogWarning(ex, "Jellyfin Animated Posters: could not clean the covers of library {LibraryId}", id);
         }
     }
 

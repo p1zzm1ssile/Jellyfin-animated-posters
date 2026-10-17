@@ -9,7 +9,7 @@ using MediaBrowser.Model.Serialization;
 namespace Jellyfin.Plugin.LibraryCoverMaker;
 
 /// <summary>
-/// Library Cover Maker: renders an animated cover for every library and keeps it fresh.
+/// Jellyfin Animated Posters: renders an animated cover for every library and keeps it fresh.
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
@@ -24,7 +24,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public static Plugin? Instance { get; private set; }
 
-    public override string Name => "Library Cover Maker";
+    public override string Name => "Jellyfin Animated Posters";
 
     public override Guid Id => Guid.Parse(PluginGuid);
 
@@ -40,7 +40,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         new PluginPageInfo
         {
             Name = "LibraryCoverMaker",
-            DisplayName = "Library Cover Maker",
+            DisplayName = "Jellyfin Animated Posters",
             EmbeddedResourcePath = GetType().Namespace + ".Web.covers.html",
 
             // Adds the page to the Plugins section of the Dashboard's sidebar.

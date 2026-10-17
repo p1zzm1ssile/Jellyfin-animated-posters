@@ -55,7 +55,7 @@ public sealed class RefreshCoversTask : IScheduledTask
 
     public string Description => "Builds a new cover for every library that follows the schedule.";
 
-    public string Category => "Library Cover Maker";
+    public string Category => "Jellyfin Animated Posters";
 
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
@@ -76,14 +76,14 @@ public sealed class RefreshCoversTask : IScheduledTask
                 var result = await _queue.RunNowAsync(libraries[i], BuildReason.Scheduled, cancellationToken)
                     .ConfigureAwait(false);
                 _log.LogInformation(
-                    "Library Cover Maker: refreshed library {LibraryId}, applied {Applied}",
+                    "Jellyfin Animated Posters: refreshed library {LibraryId}, applied {Applied}",
                     libraries[i],
                     result.Applied);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // One library that cannot be read does not stop the others.
-                _log.LogError(ex, "Library Cover Maker: refreshing library {LibraryId} failed", libraries[i]);
+                _log.LogError(ex, "Jellyfin Animated Posters: refreshing library {LibraryId} failed", libraries[i]);
             }
         }
 
