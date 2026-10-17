@@ -489,6 +489,7 @@ public sealed class CoverApplier
             CreatedAt = DateTimeOffset.UtcNow,
             Origin = CoverOrigin.Original,
             Mode = state.Mode,
+            Automatic = current.Automatic,
         };
         var extension = Path.GetExtension(current.Path).ToLowerInvariant();
         var target = Path.ChangeExtension(

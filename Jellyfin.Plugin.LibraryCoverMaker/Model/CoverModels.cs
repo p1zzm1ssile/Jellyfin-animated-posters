@@ -114,6 +114,13 @@ public class CoverRecord
     /// <summary>The content mode the library was in when the cover was added.</summary>
     public CoverMode Mode { get; set; }
 
+    /// <summary>
+    /// For the library's original: whether it was Jellyfin's automatic collage rather than an image an admin set.
+    /// Restoring an automatic original means deleting the Primary image and refreshing the library, so Jellyfin
+    /// draws the collage again. False for every other cover, and for a state saved before this field existed.
+    /// </summary>
+    public bool Automatic { get; set; }
+
     /// <summary>The titles the cover shows, so it can be checked against users' parental controls later.</summary>
     public List<Guid> TitleIds { get; set; } = new();
 }

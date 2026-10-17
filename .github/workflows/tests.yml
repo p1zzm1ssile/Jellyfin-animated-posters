@@ -36,8 +36,24 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq libfontconfig1 fonts-dejavu-core fonts-noto-core
 
+      # The tests that run the real jellyfin-ffmpeg do it inside the image jellyfin/jellyfin:12.2. The digest is
+      # read from the end-to-end script, so both jobs always test the same image, and the image is given the tag
+      # the tests look for.
+      - name: Pull the Jellyfin image for the ffmpeg tests
+        run: |
+          image=$(grep -oP 'jellyfin/jellyfin:12\.2@sha256:[0-9a-f]{64}' tests/e2e/run.sh | head -1)
+          if [ -z "$image" ]; then
+            echo "::error::No pinned Jellyfin image found in tests/e2e/run.sh."
+            exit 1
+          fi
+          docker pull --quiet "$image"
+          docker tag "$image" jellyfin/jellyfin:12.2
+
+      # With LCM_REQUIRE_FFMPEG_TESTS=1 a missing Docker or image fails those tests instead of skipping them.
       - name: Run unit tests
         shell: bash
+        env:
+          LCM_REQUIRE_FFMPEG_TESTS: '1'
         run: |
           # Every test project under tests/, so a new one is picked up without changing this file.
           shopt -s nullglob
