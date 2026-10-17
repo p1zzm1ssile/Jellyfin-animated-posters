@@ -126,7 +126,7 @@ Use the still version for any client that does not animate.
 
 ## If you ran the container
 
-The old container version is retired. Stop and remove it. Covers you made with it can be uploaded on the plugin's
+The old container version is still in place, however if you are using it for only Jellfin the plugin it a easier option and can do alot more. Covers you made with it can be uploaded on the plugin's
 Dashboard page (**Upload cover** on the library's card). If you added custom CSS in Dashboard, Branding, Custom CSS
 code to show a cover, remove it: the cover is now the library's Primary image and needs no CSS.
 
