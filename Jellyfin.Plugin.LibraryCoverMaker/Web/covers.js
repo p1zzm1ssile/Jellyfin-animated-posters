@@ -26,7 +26,7 @@
     // The ranges the server accepts. The page keeps its own controls inside them; the server still has the last word.
     const LIMITS = {
         SlotCount: [1, SLOT_COUNT],
-        LengthSeconds: [2, 12],
+        LengthSeconds: [2, 30],
         TextSize: [40, 200],
         Darken: [0, 70],
         RenewEveryDays: [1, 365]

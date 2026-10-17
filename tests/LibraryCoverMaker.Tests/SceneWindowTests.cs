@@ -130,6 +130,16 @@ public sealed class SceneWindowTests
     }
 
     [Fact]
+    public void A_clip_of_30_seconds_needs_a_title_of_more_than_37_seconds()
+    {
+        // The longest cover is 30 s, and one slot may take all of it. 120 s leaves 12 to 108, starts from 12 to 78;
+        // 36 s leaves 3.6 to 32.4, 28.8 s, too short; 37.5 s leaves exactly 30 s.
+        Assert.Equal("12 to 78", Show(SceneWindow.Allowed(120, [], 30)));
+        Assert.Empty(SceneWindow.Allowed(36, [], 30));
+        Assert.Equal("3.75 to 3.75", Show(SceneWindow.Allowed(37.5, [], 30)));
+    }
+
+    [Fact]
     public void Nothing_is_allowed_when_the_clip_is_longer_than_the_window()
     {
         // 100 s of video leaves 10 to 90, 80 s, for a clip of 81 s.

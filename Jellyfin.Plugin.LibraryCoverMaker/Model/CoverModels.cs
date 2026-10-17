@@ -74,7 +74,7 @@ public class CoverStyle
     /// <summary>Whether the text casts a shadow.</summary>
     public bool Shadow { get; set; } = true;
 
-    /// <summary>Total length of the animation, in seconds (2 to 12).</summary>
+    /// <summary>Total length of the animation, in seconds (2 to 30).</summary>
     public int LengthSeconds { get; set; } = 6;
 
     /// <summary>Whether the slots fade into one another instead of cutting.</summary>

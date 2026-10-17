@@ -1685,7 +1685,7 @@ await check('api: Out_of_range_input_is_refused_with_400_naming_the_field', asyn
     const cases = [
         [{ Style: { Darken: 71 } }, 'Darken'],
         [{ Style: { Darken: -1 } }, 'Darken'],
-        [{ Style: { LengthSeconds: 13 } }, 'LengthSeconds'],
+        [{ Style: { LengthSeconds: 31 } }, 'LengthSeconds'],
         [{ Style: { LengthSeconds: 1 } }, 'LengthSeconds'],
         [{ Style: { SlotCount: 6 } }, 'SlotCount'],
         [{ Style: { SlotCount: 0 } }, 'SlotCount'],

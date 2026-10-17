@@ -384,6 +384,21 @@ public sealed class SceneFinderTests : IDisposable
         return asked;
     }
 
+    [LinuxFact]
+    public async Task A_clip_of_30_seconds_that_no_stretch_can_hold_gives_no_choice_and_reads_nothing()
+    {
+        // 36 s leaves 3.6 s to 32.4 s, 28.8 s, for a clip of 30 s: the title is passed over (and replaced by the
+        // builder) instead of failing the cover, and neither a clip nor a frame is read for it.
+        SetTrickplay([0.9, 0.9, 0.9, 0.9]);
+        SetClip(null, ClipText());
+
+        var choice = await Finder().FindStartAsync(MakeVideo(runtimeSeconds: 36), 30, CancellationToken.None);
+
+        Assert.Null(choice);
+        Assert.Empty(ClipStarts());
+        Assert.Empty(FrameTimes());
+    }
+
     // ---- candidate sources ----
 
     [LinuxFact]
@@ -1570,6 +1585,30 @@ public sealed class SceneFinderFfmpegTests : IClassFixture<SceneFinderFfmpegTest
         Assert.InRange(BlackColumns(plain), 150, 170);
         Assert.Equal(0, BlackColumns(cropped));
         Assert.Equal(0, BlackRows(cropped));
+    }
+
+    [DockerFact]
+    public async Task A_cover_of_the_longest_length_renders_to_the_planned_30_seconds()
+    {
+        // Five clips with fades make 30 s (the renderer refuses a file whose animation is not that long to the frame).
+        var overlay = _clips.Path("overlay-30.png");
+        using (var transparent = new SKBitmap(new SKImageInfo(640, 360, SKColorType.Rgba8888, SKAlphaType.Premul)))
+        {
+            transparent.Erase(SKColors.Transparent);
+            File.WriteAllBytes(overlay, SceneFinderTests.Png(transparent));
+        }
+
+        var seconds = CoverRenderer.SlotSeconds(30, 5, fade: true, fps: 12);
+        var slots = Enumerable.Range(0, 5)
+            .Select(i => new SlotInput(SlotKind.Video, _clips.Path("clean.mp4"), i * 3, seconds, false))
+            .ToList();
+        var plan = new RenderPlan(
+            slots, overlay, 640, 360, 12, true, _clips.Path("long.webp"), _clips.Path("long.jpg"), _clips.Path("tmp"));
+
+        await CoverRenderer.RenderAsync(_clips.Runner, plan, CancellationToken.None);
+
+        Assert.True(File.Exists(plan.AnimatedOut));
+        Assert.True(File.Exists(plan.StillOut));
     }
 
     // Renders one clip of 2 s as a cover with a see-through overlay and returns the still of its first frame.

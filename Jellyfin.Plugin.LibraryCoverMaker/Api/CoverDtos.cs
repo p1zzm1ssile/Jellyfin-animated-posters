@@ -156,7 +156,7 @@ public sealed class StyleUpdateDto
     /// <summary>Whether the text casts a shadow.</summary>
     public bool? Shadow { get; set; }
 
-    /// <summary>Total length of the animation in seconds, 2 to 12.</summary>
+    /// <summary>Total length of the animation in seconds, 2 to 30.</summary>
     public int? LengthSeconds { get; set; }
 
     /// <summary>Whether the slots fade into one another.</summary>

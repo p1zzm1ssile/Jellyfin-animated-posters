@@ -63,7 +63,7 @@ public sealed class CoverBuilder
 
     // The documented range of CoverStyle.LengthSeconds.
     private const int MinLength = 2;
-    private const int MaxLength = 12;
+    private const int MaxLength = 30;
 
     private const string HiddenAtCommit =
         "A title of the new cover became hidden from a viewer while it rendered, so it was not applied.";
