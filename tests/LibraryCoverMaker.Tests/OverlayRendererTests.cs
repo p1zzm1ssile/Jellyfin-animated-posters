@@ -13,9 +13,42 @@ public sealed class FontCatalogTests
 {
     public static IEnumerable<object[]> Families => FontCatalog.Families.Select(family => new object[] { family });
 
+    // The families whose fonts ship with the plugin: every one but Jellyfin's, which comes from the system.
+    public static IEnumerable<object[]> BundledFamilies =>
+        FontCatalog.Families.Where(family => family != "Jellyfin").Select(family => new object[] { family });
+
     [Fact]
-    public void Families_lists_the_five_bundled_families() =>
-        Assert.Equal(new[] { "Bodoni Moda", "Cover Serif", "Cinzel", "Bebas Neue", "Oswald" }, FontCatalog.Families);
+    public void Families_lists_Jellyfin_first_then_the_five_bundled_families() =>
+        Assert.Equal(
+            new[] { "Jellyfin", "Bodoni Moda", "Cover Serif", "Cinzel", "Bebas Neue", "Oswald" },
+            FontCatalog.Families);
+
+    [Fact]
+    public void Jellyfin_family_asks_for_the_typeface_Jellyfin_draws_library_names_with()
+    {
+        // Jellyfin 12.2's SkiaEncoder asks Fontconfig for this, and its StripCollageBuilder writes the library name in
+        // it. Whatever the machine resolves it to (DejaVu Sans Bold in the jellyfin/jellyfin:12.2 image), the catalog
+        // must get the same typeface. It is not disposed: SkiaSharp can hand out one wrapper for one native typeface,
+        // and that may be the very object the catalog keeps.
+        var expected = SKTypeface.FromFamilyName(
+            "sans-serif",
+            SKFontStyleWeight.Bold,
+            SKFontStyleWidth.Normal,
+            SKFontStyleSlant.Upright);
+        var actual = FontCatalog.Get("Jellyfin");
+
+        Assert.Equal(
+            (expected.FamilyName, expected.FontWeight, expected.FontWidth, expected.FontSlant),
+            (actual.FamilyName, actual.FontWeight, actual.FontWidth, actual.FontSlant));
+        Assert.Equal((int)SKFontStyleWeight.Bold, actual.FontWeight);
+        Assert.Same(actual, FontCatalog.Get("jellyfin"));
+    }
+
+    [Fact]
+    public void Jellyfin_family_is_not_one_of_the_bundled_fonts() =>
+        Assert.DoesNotContain(
+            FontCatalog.Families.Where(family => family != "Jellyfin"),
+            family => ReferenceEquals(FontCatalog.Get(family), FontCatalog.Get("Jellyfin")));
 
     [Theory]
     [InlineData("Bodoni Moda", 700)]
@@ -40,14 +73,14 @@ public sealed class FontCatalogTests
     [InlineData("   ")]
     [InlineData("Comic Sans")]
     [InlineData("Playfair Display")] // the name Cover Serif was made from is reserved, so it is not a family here
-    public void Get_falls_back_to_Bodoni_Moda_for_an_unknown_family(string? family) =>
-        Assert.Same(FontCatalog.Get("Bodoni Moda"), FontCatalog.Get(family));
+    public void Get_falls_back_to_Jellyfin_for_an_unknown_family(string? family) =>
+        Assert.Same(FontCatalog.Get("Jellyfin"), FontCatalog.Get(family));
 
     [Theory]
     [InlineData(null)]
     [InlineData("   ")]
     public void Title_with_a_missing_family_name_keeps_the_default_font(string? family) =>
-        Assert.Same(FontCatalog.Get("Bodoni Moda"), FontCatalog.ForText(family, "FILMES"));
+        Assert.Same(FontCatalog.Get("Jellyfin"), FontCatalog.ForText(family, "FILMES"));
 
     [Fact]
     public void Title_without_glyphs_uses_fallback_font()
@@ -90,7 +123,7 @@ public sealed class FontCatalogTests
     };
 
     [Theory]
-    [MemberData(nameof(Families))]
+    [MemberData(nameof(BundledFamilies))]
     public void Each_font_ships_with_its_license(string family)
     {
         Assert.True(LicenseFiles.TryGetValue(family, out var file), $"No license file is listed for {family}.");
@@ -126,7 +159,9 @@ public sealed class FontCatalogTests
         // No font of the catalog has Cyrillic, so a system font draws it. Nothing is pinned for that typeface: the
         // ratio follows from the ascent (negative in Skia) and the descent that Skia reports for it.
         var system = FontCatalog.ForText("Bodoni Moda", "ФИЛЬМЫ");
-        Assert.DoesNotContain(FontCatalog.Families, name => ReferenceEquals(FontCatalog.Get(name), system));
+        Assert.DoesNotContain(
+            BundledFamilies.Select(row => (string)row[0]),
+            name => ReferenceEquals(FontCatalog.Get(name), system));
 
         using var font = new SKFont(system, 100) { LinearMetrics = true, Hinting = SKFontHinting.None };
         var metrics = font.Metrics;
@@ -320,7 +355,7 @@ public sealed class OverlayRendererTests
         var x = 24 * width / 960;
         var y = height / 2;
 
-        using var withFrame = Render(new CoverStyle(), "A", width, height);
+        using var withFrame = Render(new CoverStyle { Frame = true }, "A", width, height);
         using var withoutFrame = Render(new CoverStyle { Frame = false }, "A", width, height);
 
         Assert.True(IsOpaqueWhite(withFrame.GetPixel(x, y)));
@@ -333,7 +368,7 @@ public sealed class OverlayRendererTests
     [Fact]
     public void Frame_is_a_stroke_and_not_a_filled_rectangle()
     {
-        using var overlay = Render(new CoverStyle(), "A");
+        using var overlay = Render(new CoverStyle { Frame = true }, "A");
 
         // Just inside and just outside the stroke, on the middle row.
         Assert.False(IsOpaqueWhite(overlay.GetPixel(24 * Width / 960 + 8, Height / 2)));
@@ -352,7 +387,7 @@ public sealed class OverlayRendererTests
         var arcX = (int)(24 * scale + radius - radius * Math.Cos(Math.PI / 4));
         var arcY = (int)(22 * scale + radius - radius * Math.Sin(Math.PI / 4));
 
-        using var overlay = Render(new CoverStyle(), "A", width, height);
+        using var overlay = Render(new CoverStyle { Frame = true }, "A", width, height);
 
         Assert.True(IsOpaqueWhite(overlay.GetPixel(arcX, arcY)));
 
@@ -364,7 +399,7 @@ public sealed class OverlayRendererTests
     public void Frame_casts_a_soft_shadow()
     {
         // No darkening and no text, so the only thing besides the stroke is its shadow.
-        var style = new CoverStyle { Darken = 0 };
+        var style = new CoverStyle { Darken = 0, Frame = true };
         var x = 24 * Width / 960 - 4;
 
         using var withFrame = Render(style, string.Empty);
@@ -374,6 +409,16 @@ public sealed class OverlayRendererTests
         Assert.True(shadow.Alpha > 0 && shadow.Alpha < 128);
         Assert.Equal(0, shadow.Red);
         Assert.Equal(0, withoutFrame.GetPixel(x, Height / 2).Alpha);
+    }
+
+    [Fact]
+    public void Default_style_has_no_frame()
+    {
+        using var overlay = Render(new CoverStyle(), "A");
+
+        // Where the frame's stroke would be, only the default darkening of 15 percent is left.
+        var bare = overlay.GetPixel(24 * Width / 960, Height / 2);
+        Assert.Equal((38, 0), (bare.Alpha, bare.Red));
     }
 
     [Fact]
@@ -396,10 +441,11 @@ public sealed class OverlayRendererTests
     [Fact]
     public void Empty_title_uses_library_name_in_uppercase()
     {
-        var named = Renderer.RenderPng(new CoverStyle { Title = string.Empty }, "Movies", Width, Height);
-        var blank = Renderer.RenderPng(new CoverStyle { Title = "   " }, "Movies", Width, Height);
-        var typed = Renderer.RenderPng(new CoverStyle { Title = "MOVIES" }, "Ignored", Width, Height);
-        var nothing = Renderer.RenderPng(new CoverStyle { Title = string.Empty }, string.Empty, Width, Height);
+        var bodoni = (string title) => new CoverStyle { Title = title, Font = "Bodoni Moda" };
+        var named = Renderer.RenderPng(bodoni(string.Empty), "Movies", Width, Height);
+        var blank = Renderer.RenderPng(bodoni("   "), "Movies", Width, Height);
+        var typed = Renderer.RenderPng(bodoni("MOVIES"), "Ignored", Width, Height);
+        var nothing = Renderer.RenderPng(bodoni(string.Empty), string.Empty, Width, Height);
 
         Assert.Equal(typed, named);
         Assert.Equal(typed, blank);
@@ -413,7 +459,7 @@ public sealed class OverlayRendererTests
     [InlineData("   ")]
     public void Missing_font_name_draws_the_default_font(string? font)
     {
-        var expected = Renderer.RenderPng(new CoverStyle { Font = "Bodoni Moda" }, "Movies", Width, Height);
+        var expected = Renderer.RenderPng(new CoverStyle { Font = "Jellyfin" }, "Movies", Width, Height);
         var actual = Renderer.RenderPng(new CoverStyle { Font = font! }, "Movies", Width, Height);
 
         Assert.Equal(expected, actual);
@@ -422,8 +468,8 @@ public sealed class OverlayRendererTests
     [Fact]
     public void Title_is_uppercased_and_trimmed()
     {
-        var typed = Renderer.RenderPng(new CoverStyle { Title = "SÉRIES" }, "x", Width, Height);
-        var sloppy = Renderer.RenderPng(new CoverStyle { Title = "  Séries " }, "x", Width, Height);
+        var typed = Renderer.RenderPng(new CoverStyle { Title = "SÉRIES", Font = "Cinzel" }, "x", Width, Height);
+        var sloppy = Renderer.RenderPng(new CoverStyle { Title = "  Séries ", Font = "Cinzel" }, "x", Width, Height);
 
         Assert.Equal(typed, sloppy);
     }
@@ -652,6 +698,123 @@ public sealed class OverlayRendererTests
 
         Assert.NotEmpty(renders);
         Assert.Equal(renders.Count, renders.Distinct().Count());
+    }
+
+    // Jellyfin 12.2 draws a library's image 960 by 540 (CollectionFolderImageProvider) and writes the name at 112 px
+    // (StripCollageBuilder.BuildThumbCollageBitmap), so the Jellyfin look is checked at that size.
+    private const int JellyfinWidth = 960;
+    private const int JellyfinHeight = 540;
+
+    private static CoverStyle JellyfinText(string title) => TextOnly(title, "Jellyfin", 112);
+
+    private static SKBitmap RenderJellyfin(string title) =>
+        Render(JellyfinText(title), "x", JellyfinWidth, JellyfinHeight);
+
+    // The font Jellyfin measures the name with: the typeface at the size, and every other setting SKFont's default.
+    private static SKFont JellyfinFont(SKTypeface? typeface = null, float size = 112) =>
+        new(typeface ?? FontCatalog.Get("Jellyfin"), size);
+
+    [Fact]
+    public void Jellyfin_look_keeps_the_case_of_the_name()
+    {
+        var jellyfin = (string title) => new CoverStyle { Title = title, Font = "Jellyfin" };
+        var named = Renderer.RenderPng(jellyfin(string.Empty), "Collections", Width, Height);
+        var typed = Renderer.RenderPng(jellyfin("  Collections "), "Ignored", Width, Height);
+        var upper = Renderer.RenderPng(jellyfin("COLLECTIONS"), "Ignored", Width, Height);
+
+        Assert.Equal(typed, named);
+        Assert.NotEqual(upper, named);
+    }
+
+    [Fact]
+    public void Jellyfin_look_puts_the_baseline_half_an_x_height_below_the_middle()
+    {
+        // Jellyfin draws at y = height / 2 + XHeight / 2, the x-height of the font at the size it draws, so a lowercase
+        // x is centered on the middle row and a capital H stands on that baseline.
+        using var font = JellyfinFont();
+        var baseline = JellyfinHeight / 2f + font.Metrics.XHeight / 2;
+
+        using var capital = RenderJellyfin("H");
+        Assert.InRange(InkBounds(capital).Bottom, baseline - 1, baseline + 1);
+
+        using var lower = RenderJellyfin("x");
+        var ink = InkBounds(lower);
+        Assert.InRange((ink.Top + ink.Bottom) / 2.0, JellyfinHeight / 2.0 - 1, JellyfinHeight / 2.0 + 1);
+    }
+
+    [Theory]
+    [InlineData("Collections")]
+    [InlineData("Movies")]
+    [InlineData("AVATAR")] // A and V kern, so the shaped line is narrower than the measured one
+    public void Jellyfin_look_starts_the_name_where_its_unshaped_width_centers_it(string name)
+    {
+        // Jellyfin measures the name with SKFont.MeasureText, which adds the glyph advances without kerning, centers
+        // that width, and draws the shaped text from its left end.
+        using var font = JellyfinFont();
+        var start = (JellyfinWidth - font.MeasureText(name, out var bounds)) / 2;
+
+        using var overlay = RenderJellyfin(name);
+        Assert.InRange(InkBounds(overlay).Left, start + bounds.Left - 1.5, start + bounds.Left + 1.5);
+    }
+
+    [Fact]
+    public void Jellyfin_look_keeps_the_size_of_a_name_up_to_95_percent_of_the_width()
+    {
+        // As many capital Is as fit in 95 percent of the width. One I is under 5 percent of it, so the line is wider
+        // than 90 percent: a renderer that shrank at 90 percent, or kept a margin like the page's, would shrink it.
+        using var font = JellyfinFont();
+        var name = "I";
+        while (font.MeasureText(name + "I") <= JellyfinWidth * 0.95)
+        {
+            name += "I";
+        }
+
+        Assert.True(font.MeasureText(name) > JellyfinWidth * 0.9, "The line is not wider than 90 percent.");
+        font.MeasureText("I", out var capital);
+
+        using var overlay = RenderJellyfin(name);
+        Assert.InRange(InkBounds(overlay).Height, capital.Height - 1.5, capital.Height + 1.5);
+    }
+
+    [Fact]
+    public void Jellyfin_look_shrinks_a_name_wider_than_95_percent_to_90_percent()
+    {
+        // Wider than 95 percent at 112 px, the size becomes 0.9 * width * 112 / measured width, so the measured line
+        // fills 90 percent of the image, and it is centered as before.
+        const string name = "The Complete Collection of Every Movie Ever Made";
+        using var font = JellyfinFont();
+        var measured = font.MeasureText(name);
+        Assert.True(measured > JellyfinWidth * 0.95, $"The name is only {measured} px wide at 112 px.");
+
+        font.Size = 0.9f * JellyfinWidth * font.Size / measured;
+        var start = (JellyfinWidth - font.MeasureText(name, out var bounds)) / 2;
+
+        using var overlay = RenderJellyfin(name);
+        var ink = InkBounds(overlay);
+        Assert.InRange(ink.Left, start + bounds.Left - 1.5, start + bounds.Left + 1.5);
+        Assert.InRange(ink.Width, JellyfinWidth * 0.85, JellyfinWidth * 0.9 + 2);
+    }
+
+    [Fact]
+    public void Jellyfin_look_aligns_a_right_to_left_name_to_the_right_end_of_its_measured_line()
+    {
+        // Jellyfin draws a name with Arabic, Armenian, Hebrew, Syriac or Thaana letters right aligned at the right end
+        // of the centered measured line. Joined Arabic letters make the shaped line much narrower than the measured
+        // one, so drawing it from the left end instead would put its right edge far from there.
+        const string name = "أفلام";
+        using var font = JellyfinFont(FontCatalog.ForText("Jellyfin", name));
+        var measured = font.MeasureText(name);
+        var shaped = FontCatalog.Shape(font, name).Width;
+        var lineEnd = JellyfinWidth - (JellyfinWidth - measured) / 2;
+        Assert.True(measured - shaped > 20, $"Shaped {shaped} px, measured {measured} px.");
+
+        using var overlay = RenderJellyfin(name);
+        // The side bearing of the glyph at the right end leaves a few pixels free (about 10 at 112 px where this was
+        // written); drawn from the left end, the line's ink would stop about 100 pixels short.
+        var right = InkBounds(overlay).Right;
+        Assert.True(
+            right > lineEnd - 16 && right < lineEnd + 2,
+            $"The ink ends at x {right}, the measured line at {lineEnd} (measured {measured} px, shaped {shaped} px).");
     }
 
     [Fact]

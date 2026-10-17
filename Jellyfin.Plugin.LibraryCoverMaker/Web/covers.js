@@ -20,6 +20,8 @@
     const SEARCH_DELAY_MS = 300;
     const FRAME_DELAY_MS = 250;
     const GLOBAL = 'global';
+    // The font that writes the name the way Jellyfin does, in its own case. The server lists it first.
+    const JELLYFIN_FONT = 'Jellyfin';
 
     // The ranges the server accepts. The page keeps its own controls inside them; the server still has the last word.
     const LIMITS = {
@@ -937,8 +939,7 @@
             $('lcm-length').value = style.LengthSeconds;
             $('lcm-fade').checked = !!style.Fade;
             $('lcm-title').value = style.Title || '';
-            const card = cardOf(page.editor.id);
-            $('lcm-title').placeholder = card ? card.Name.toUpperCase() : '';
+            showTitlePlaceholder(style.Font);
 
             const font = $('lcm-font');
             font.textContent = '';
@@ -961,6 +962,15 @@
             $('lcm-renew-days-box').hidden = !own;
         }
 
+        /** The library's name as the cover writes it: in its own case in Jellyfin's font, else in uppercase. */
+        function showTitlePlaceholder(font) {
+            const card = cardOf(page.editor.id);
+            const families = (page.settings && page.settings.Fonts) || [];
+            // A font the server does not list draws as its default, Jellyfin's.
+            const ownCase = font === JELLYFIN_FONT || families.indexOf(font) < 0;
+            $('lcm-title').placeholder = !card ? '' : ownCase ? card.Name : card.Name.toUpperCase();
+        }
+
         /** Reads the controls into the draft, keeping every number inside the server's range. */
         function readSettings() {
             const draft = page.editor.draft;
@@ -973,6 +983,7 @@
             style.Fade = $('lcm-fade').checked;
             style.Title = $('lcm-title').value.trim().slice(0, 100);
             style.Font = $('lcm-font').value;
+            showTitlePlaceholder(style.Font);
             style.TextSize = clamp($('lcm-text-size').value, LIMITS.TextSize);
             style.Darken = clamp($('lcm-darken').value, LIMITS.Darken);
             style.Frame = $('lcm-frame').checked;

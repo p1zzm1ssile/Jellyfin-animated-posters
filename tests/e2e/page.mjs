@@ -25,6 +25,7 @@ const NAMES = [
     'Page_lists_one_card_per_library',
     'Generate_now_shows_a_new_cover',
     'Editor_opens_clean_and_clamps_numbers',
+    'Editor_lists_the_Jellyfin_font_first',
     'Editor_locks_a_title_and_the_next_build_keeps_it',
     'Slot_search_and_backdrop_pick',
     'Scenes_moment_slider_shows_frames',
@@ -165,8 +166,36 @@ export async function pageChecks(ctx) {
         expect(!(await page.locator('#lcm-save').isDisabled()), 'Save stays disabled after a change');
         await page.locator('#lcm-undo').click();
         const undone = await page.locator('#lcm-text-size').inputValue();
-        expect(undone === '120', `Undo left ${undone}`);
-        return '999 shown as 200, Undo back to 120';
+        expect(undone === '112', `Undo left ${undone}`);
+        return '999 shown as 200, Undo back to 112';
+    });
+
+    await step('Editor_lists_the_Jellyfin_font_first', async () => {
+        // The check before leaves the editor open on Movies; Edit is only clicked when it does not.
+        const open = await page.evaluate(
+            () =>
+                !document.getElementById('lcm-editor').hidden &&
+                /Movies/.test(document.getElementById('lcm-editor-title').textContent)
+        );
+        if (!open) await openEditor('Movies');
+        const fonts = await page.locator('#lcm-font option').allTextContents();
+        expect(fonts[0] === 'Jellyfin', `the fonts are ${fonts.join(', ')}`);
+        expect((await page.locator('#lcm-font').inputValue()) === 'Jellyfin', 'Jellyfin is not the font chosen');
+        expect(!(await page.locator('#lcm-frame').isChecked()), 'the frame is on');
+        // Jellyfin's font writes the name in its own case, the other fonts in uppercase, and the hint follows.
+        const hint = () => page.locator('#lcm-title').getAttribute('placeholder');
+        const own = await hint();
+        // The font is put back by hand, not with Undo, which stays disabled while a build of Movies is running.
+        await page.locator('#lcm-font').selectOption('Cinzel');
+        const upper = await hint();
+        await page.locator('#lcm-font').selectOption('Jellyfin');
+        const back = await hint();
+        expect(
+            own === 'Movies' && upper === 'MOVIES' && back === 'Movies',
+            `the hint is ${own}, then ${upper} in Cinzel and ${back} back in Jellyfin`
+        );
+        expect(await page.locator('#lcm-save').isDisabled(), 'Save is enabled with the font put back');
+        return fonts.join(', ');
     });
 
     let lockedId;

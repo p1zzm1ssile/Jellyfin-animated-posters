@@ -51,11 +51,17 @@ in `manifest.json`.
 - **Animated or still.** Every render makes both an animated WebP and a still picture of the same cover. One setting
   decides which of the two becomes each library's Primary image (animated by default), for clients that cannot play an
   animation; changing it applies the current covers again without rendering them.
-- **The look of the Library Cover Maker page.** A rounded white frame, the library name in a big serif font, a darkened
-  picture and a soft shadow, with a choice of five bundled fonts, text size, darkening, length (2 to 12 seconds) and
-  fade. The fonts ship with the plugin under the SIL Open Font License, with their license texts, and nothing is fetched
-  from Google Fonts or any other service while it runs. A title in a script the chosen font lacks is drawn with an
-  installed font that has the glyphs.
+- **The Jellyfin look, by default.** The library name is written the way Jellyfin writes it on the library images it
+  draws itself: in Jellyfin's own bold sans-serif font (whatever the server's font configuration gives Jellyfin, so
+  nothing ships for it), in the name's own case, at the same size and on the same line, with no frame, over a lightly
+  darkened picture and with a soft shadow, so it stays readable over moving pictures. A library whose style still had
+  the old defaults (Bodoni Moda at 120 in the white frame) moves to the Jellyfin look; one whose font, size or frame
+  was changed keeps it.
+- **The look of the Library Cover Maker page, as an option.** A rounded white frame and the library name in uppercase
+  in one of five bundled fonts, with text size, darkening, shadow, length (2 to 12 seconds) and fade. The bundled fonts
+  ship with the plugin under the SIL Open Font License, with their license texts, and nothing is fetched from Google
+  Fonts or any other service while it runs. A title in a script the chosen font lacks is drawn with an installed font
+  that has the glyphs.
 - **Gentle on the server.** Covers are rendered one at a time at low priority, and the automatic ones wait while someone
   is watching; a cover you ask for with Generate now starts at once. A failed or stopped render leaves the current cover
   untouched.

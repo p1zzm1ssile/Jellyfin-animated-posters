@@ -1,4 +1,5 @@
 using System;
+using System.Text.RegularExpressions;
 using Jellyfin.Plugin.LibraryCoverMaker.Model;
 using SkiaSharp;
 using SkiaSharp.HarfBuzz;
@@ -8,14 +9,28 @@ namespace Jellyfin.Plugin.LibraryCoverMaker.Rendering;
 /// <summary>
 /// Draws the part of a cover that stays still while the pictures move: a transparent PNG with the darkening, the
 /// rounded white frame and the title. The render lays it over every frame of the animation. The title is shaped with
-/// HarfBuzz, so it is kerned and laid out like the page's browser laid it out.
+/// HarfBuzz, so it is kerned and laid out like the page's browser or Jellyfin laid it out.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The geometry is the cover page's design, a canvas of 960 by 540 pixels, scaled by <c>width / 960</c>. The page's
 /// shadows are canvas shadows, where a blur of B is a Gaussian with a standard deviation of B / 2; the constants below
 /// carry that standard deviation.
+/// </para>
+/// <para>
+/// A title in the Jellyfin family is written the way Jellyfin 12.2 writes a library's name on the library images it
+/// draws itself (<c>StripCollageBuilder.BuildThumbCollageBitmap</c>, src/Jellyfin.Drawing.Skia, tag v12.2, on images
+/// of 960 by 540): in the name's own case, white, measured without kerning by <c>SKFont.MeasureText</c> with SKFont's
+/// default settings, shrunk to 90 percent of the width when it is wider than 95 percent, centered by that measured
+/// width, on a baseline half the font's x-height below the middle, and shaped from the line's left end, or its right
+/// end for a right-to-left script. Jellyfin draws it at 112 pixels, the default text size here. What Jellyfin adds
+/// besides the name is a black layer at alpha 0x78 (47 percent) over the whole image and no shadow; here those are the
+/// style's darkening and shadow. One difference is left: where the name has letters its typeface lacks, Jellyfin draws
+/// each run of them in a font of its own, and this renderer draws the whole name in one (see
+/// <see cref="FontCatalog.ForText"/>).
+/// </para>
 /// </remarks>
-public sealed class OverlayRenderer
+public sealed partial class OverlayRenderer
 {
     // Lengths in the page's 960 by 540 canvas; the renderer multiplies each by the output scale.
     private const float DesignWidth = 960f;
@@ -31,6 +46,10 @@ public sealed class OverlayRenderer
     // The middle of the title sits this fraction of the text size below the canvas center.
     private const float TitleDrop = 0.04f;
 
+    // Jellyfin's rule for a long name: wider than this fraction of the image, it shrinks to fill the second.
+    private const double JellyfinMaxWidth = 0.95;
+    private const float JellyfinShrunkWidth = 0.9f;
+
     // The documented range of CoverStyle.Darken, in percent, is 0 to 70. A value beyond it is clamped to it.
     private const int MaxDarken = 70;
 
@@ -38,9 +57,9 @@ public sealed class OverlayRenderer
     private static readonly SKColor TitleShadowColor = new(0, 0, 0, 153); // rgba(0, 0, 0, .6)
 
     /// <summary>
-    /// Draws the overlay for a cover. The title is the style's, or the library's name when the style has none, in
-    /// uppercase and shrunk to fit. A darkening outside 0 to 70 percent is clamped, and a text size of 0 or less
-    /// draws no title.
+    /// Draws the overlay for a cover. The title is the style's, or the library's name when the style has none, trimmed
+    /// and shrunk to fit; in uppercase, except in the Jellyfin family, which keeps its case as Jellyfin does. A
+    /// darkening outside 0 to 70 percent is clamped, and a text size of 0 or less draws no title.
     /// </summary>
     /// <param name="style">How the cover looks.</param>
     /// <param name="libraryName">The text to use when the style has no title of its own.</param>
@@ -123,25 +142,58 @@ public sealed class OverlayRenderer
         int width,
         int height)
     {
-        var text = (string.IsNullOrWhiteSpace(style.Title) ? libraryName : style.Title).Trim().ToUpperInvariant();
+        var jellyfin = FontCatalog.IsJellyfin(style.Font);
+        var text = (string.IsNullOrWhiteSpace(style.Title) ? libraryName : style.Title).Trim();
+        if (!jellyfin)
+        {
+            text = text.ToUpperInvariant();
+        }
+
         if (text.Length == 0)
         {
             return;
         }
 
-        // Gray antialiasing, never LCD: the overlay is laid over moving pictures, so colored fringes would show.
-        // Linear metrics and no hinting keep the layout exactly proportional to the size.
-        using var font = new SKFont(FontCatalog.ForText(style.Font, text), style.TextSize * scale)
-        {
-            Edging = SKFontEdging.Antialias,
-            Subpixel = true,
-            LinearMetrics = true,
-            Hinting = SKFontHinting.None,
-        };
+        using var font = jellyfin
+            ? new SKFont(FontCatalog.ForText(style.Font, text), style.TextSize * scale)
+            : PageFont(FontCatalog.ForText(style.Font, text), style.TextSize * scale);
+        var (shaped, x, baseline) = jellyfin
+            ? LayOutLikeJellyfin(font, text, width, height)
+            : LayOutLikeThePage(font, style.Font, text, scale, width, height);
 
-        // The text is shaped, as the page's browser laid it out, so pairs are kerned and right-to-left scripts come out
-        // joined and in visual order. A title wider than the canvas allows shrinks to the largest whole pixel size that
-        // fits, by its shaped width.
+        using var shadow = style.Shadow
+            ? SKImageFilter.CreateDropShadow(
+                0,
+                TitleShadowOffsetY * scale,
+                TitleShadowSigma * scale,
+                TitleShadowSigma * scale,
+                TitleShadowColor)
+            : null;
+        using var paint = new SKPaint { IsAntialias = true, Color = SKColors.White, ImageFilter = shadow };
+        DrawGlyphs(canvas, shaped, font, x, baseline, paint);
+    }
+
+    // Gray antialiasing, never LCD: the overlay is laid over moving pictures, so colored fringes would show. Linear
+    // metrics and no hinting keep the layout exactly proportional to the size.
+    private static SKFont PageFont(SKTypeface typeface, float size) => new(typeface, size)
+    {
+        Edging = SKFontEdging.Antialias,
+        Subpixel = true,
+        LinearMetrics = true,
+        Hinting = SKFontHinting.None,
+    };
+
+    // The page's layout. The text is shaped, as the page's browser laid it out, so pairs are kerned and right-to-left
+    // scripts come out joined and in visual order. A title wider than the canvas allows shrinks to the largest whole
+    // pixel size that fits, by its shaped width, and the shaped line is centered.
+    private static (SKShaper.Result Shaped, float X, float Baseline) LayOutLikeThePage(
+        SKFont font,
+        string? family,
+        string text,
+        float scale,
+        int width,
+        int height)
+    {
         var shaped = FontCatalog.Shape(font, text);
         var maxWidth = width - TitleMargin * scale;
         if (shaped.Width > maxWidth)
@@ -154,19 +206,40 @@ public sealed class OverlayRenderer
 
         // The line comes from the chosen family's metrics even when a fallback font draws the glyphs, as it did on the
         // page, so the title stays where the chosen family puts it whatever script it is in.
-        var baseline = middle + font.Size * FontCatalog.BaselineBelowMiddle(FontCatalog.Get(style.Font));
-
-        using var shadow = style.Shadow
-            ? SKImageFilter.CreateDropShadow(
-                0,
-                TitleShadowOffsetY * scale,
-                TitleShadowSigma * scale,
-                TitleShadowSigma * scale,
-                TitleShadowColor)
-            : null;
-        using var paint = new SKPaint { IsAntialias = true, Color = SKColors.White, ImageFilter = shadow };
-        DrawGlyphs(canvas, shaped, font, (width - shaped.Width) / 2f, baseline, paint);
+        var baseline = middle + font.Size * FontCatalog.BaselineBelowMiddle(FontCatalog.Get(family));
+        return (shaped, (width - shaped.Width) / 2f, baseline);
     }
+
+    // Jellyfin's layout, step for step (see the class remarks). The font has SKFont's default settings, as Jellyfin's
+    // has: hinted, with glyphs on whole pixels. The measure is SKFont.MeasureText, which adds advances without
+    // kerning, and Jellyfin measures again after a shrink and shrinks a second time if the line is still too wide.
+    private static (SKShaper.Result Shaped, float X, float Baseline) LayOutLikeJellyfin(
+        SKFont font,
+        string text,
+        int width,
+        int height)
+    {
+        var measured = font.MeasureText(text);
+        for (var pass = 0; pass < 2 && measured > width * JellyfinMaxWidth; pass++)
+        {
+            font.Size = JellyfinShrunkWidth * width * font.Size / measured;
+            measured = font.MeasureText(text);
+        }
+
+        // Jellyfin takes the x-height from its own typeface even when a fallback draws the letters, so the line stays
+        // where its typeface puts it whatever script the name is in.
+        using var lineFont = new SKFont(FontCatalog.Get(FontCatalog.JellyfinFamily), font.Size);
+        var baseline = height / 2f + lineFont.Metrics.XHeight / 2;
+
+        var shaped = FontCatalog.Shape(font, text);
+        var padding = (width - measured) / 2;
+        var x = JellyfinRightToLeft().IsMatch(text) ? width - padding - shaped.Width : padding;
+        return (shaped, x, baseline);
+    }
+
+    // Jellyfin's own test for a name it aligns to the right, Armenian included.
+    [GeneratedRegex(@"\p{IsArabic}|\p{IsArmenian}|\p{IsHebrew}|\p{IsSyriac}|\p{IsThaana}")]
+    private static partial Regex JellyfinRightToLeft();
 
     // Draws shaped glyphs as one run, the line starting at x on the given baseline.
     private static void DrawGlyphs(

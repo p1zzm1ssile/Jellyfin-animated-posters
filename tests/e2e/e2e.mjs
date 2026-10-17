@@ -557,7 +557,16 @@ async function staysSame(what, changed) {
 /** The five slots, the first ones locked as given ({ ItemId, MomentSeconds, BackdropIndex }), the rest free. */
 const slots = (...locked) => Array.from({ length: 5 }, (_, i) => locked[i] ?? {});
 
-const DEFAULT_STYLE = { SlotCount: 5, Fade: true, Darken: 15, Frame: true, Shadow: true, LengthSeconds: 6 };
+const DEFAULT_STYLE = {
+    SlotCount: 5,
+    Fade: true,
+    Font: 'Jellyfin',
+    TextSize: 112,
+    Darken: 15,
+    Frame: false,
+    Shadow: true,
+    LengthSeconds: 6
+};
 
 /** Puts a library back as the scheduled task leaves it (art, the default style, nothing locked, unpinned) with a
  *  generated cover, building one only when something differs. */
@@ -975,6 +984,20 @@ await check('covers: Refresh_task_gives_every_library_an_animated_cover_under_5_
         report.push(`${name} ${info.durations.length} frames ${Math.round(cover.length / 1024)} KB`);
     }
     return report.join(', ');
+});
+
+await check('covers: Every_library_starts_with_the_Jellyfin_look', async () => {
+    await ensureCovers();
+    const settings = await ok(covers('/Settings'));
+    expect(settings.Fonts[0] === 'Jellyfin', `the fonts are ${settings.Fonts.join(', ')}`);
+    for (const name of Object.keys(LIBRARIES)) {
+        const { Font, TextSize, Frame } = (await coverState(name)).Style;
+        expect(
+            Font === 'Jellyfin' && TextSize === 112 && Frame === false,
+            `${name}'s style is ${JSON.stringify({ Font, TextSize, Frame })}`
+        );
+    }
+    return `fonts ${settings.Fonts.join(', ')}`;
 });
 
 await check('covers: Home_without_artwork_gets_a_cover_from_its_videos', async () => {

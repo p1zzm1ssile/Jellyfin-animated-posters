@@ -109,7 +109,7 @@ public sealed class CoversApiTests : IDisposable
         Assert.Equal("Oswald", target.Font);
         Assert.False(target.Frame);
         Assert.Equal("Keep", target.Title);
-        Assert.Equal(120, target.TextSize);
+        Assert.Equal(112, target.TextSize);
     }
 
     // ---- Renewal ----------------------------------------------------------------------------------------------------

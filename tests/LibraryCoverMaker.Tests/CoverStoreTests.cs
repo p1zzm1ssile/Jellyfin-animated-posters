@@ -76,11 +76,12 @@ public sealed class CoverStoreTests : IDisposable
 
         var style = state.Style;
         Assert.Equal(string.Empty, style.Title);
-        Assert.Equal("Bodoni Moda", style.Font);
-        Assert.Equal(120, style.TextSize);
+        Assert.Equal("Jellyfin", style.Font);
+        Assert.Equal(112, style.TextSize);
         Assert.Equal(15, style.Darken);
-        Assert.True(style.Frame);
+        Assert.False(style.Frame);
         Assert.True(style.Shadow);
+        Assert.Equal(LibraryCoverState.CurrentStyleDefaults, state.StyleDefaults);
         Assert.Equal(6, style.LengthSeconds);
         Assert.True(style.Fade);
         Assert.Equal(5, style.SlotCount);
@@ -474,6 +475,67 @@ public sealed class CoverStoreTests : IDisposable
         Assert.Equal(contents, File.ReadAllText(StatePath(Library) + ".bad"));
     }
 
+    // A state file as the plugin wrote it before the Jellyfin look was the default: no StyleDefaults, and the style's
+    // font, text size and frame as given.
+    private void WriteFirstLookState(string font, int textSize, bool frame, int? styleDefaults = null)
+    {
+        _store.Save(new LibraryCoverState { LibraryId = Library });
+        var json = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(StatePath(Library)))!.AsObject();
+        json.Remove("StyleDefaults");
+        if (styleDefaults is { } version)
+        {
+            json["StyleDefaults"] = version;
+        }
+
+        var style = json["Style"]!.AsObject();
+        style["Font"] = font;
+        style["TextSize"] = textSize;
+        style["Frame"] = frame;
+        style["Darken"] = 30;
+        File.WriteAllText(StatePath(Library), json.ToJsonString());
+    }
+
+    [Fact]
+    public void Style_still_on_the_first_look_moves_to_the_Jellyfin_look()
+    {
+        WriteFirstLookState("Bodoni Moda", 120, frame: true);
+
+        var state = _store.Load(Library);
+
+        Assert.Equal(("Jellyfin", 112, false), (state.Style.Font, state.Style.TextSize, state.Style.Frame));
+        Assert.Equal(30, state.Style.Darken); // the rest of the style is the admin's and stays
+        Assert.Equal(LibraryCoverState.CurrentStyleDefaults, state.StyleDefaults);
+
+        // Saved, it is marked as made under the new defaults, so it is not moved again.
+        _store.Save(state);
+        Assert.Contains("\"StyleDefaults\": 2", File.ReadAllText(StatePath(Library)));
+    }
+
+    [Theory]
+    [InlineData("Cinzel", 120, true)] // another font
+    [InlineData("Bodoni Moda", 90, true)] // another size
+    [InlineData("Bodoni Moda", 120, false)] // the frame turned off
+    public void Style_changed_from_the_first_look_is_kept(string font, int textSize, bool frame)
+    {
+        WriteFirstLookState(font, textSize, frame);
+
+        var state = _store.Load(Library);
+
+        Assert.Equal((font, textSize, frame), (state.Style.Font, state.Style.TextSize, state.Style.Frame));
+        Assert.Equal(LibraryCoverState.CurrentStyleDefaults, state.StyleDefaults);
+    }
+
+    [Fact]
+    public void First_look_chosen_under_the_new_defaults_is_kept()
+    {
+        // An admin who picks Bodoni Moda at 120 in the frame again, once the Jellyfin look is the default, keeps it.
+        WriteFirstLookState("Bodoni Moda", 120, frame: true, styleDefaults: LibraryCoverState.CurrentStyleDefaults);
+
+        var state = _store.Load(Library);
+
+        Assert.Equal(("Bodoni Moda", 120, true), (state.Style.Font, state.Style.TextSize, state.Style.Frame));
+    }
+
     [Fact]
     public void File_with_another_library_id_loads_with_the_requested_id()
     {
@@ -842,7 +904,7 @@ public sealed class CoverStoreTests : IDisposable
                 Font = "Cinzel",
                 TextSize = 90,
                 Darken = 40,
-                Frame = false,
+                Frame = true,
                 Shadow = false,
                 LengthSeconds = 9,
                 Fade = false,
@@ -895,6 +957,7 @@ public sealed class CoverStoreTests : IDisposable
         Assert.Equal(expected.LibraryId, actual.LibraryId);
         Assert.Equal(expected.Mode, actual.Mode);
         Assert.Equal(expected.Pinned, actual.Pinned);
+        Assert.Equal(expected.StyleDefaults, actual.StyleDefaults);
         AssertSame(expected.Style, actual.Style);
         Assert.Equal(expected.Slots.Length, actual.Slots.Length);
         for (var i = 0; i < expected.Slots.Length; i++)
