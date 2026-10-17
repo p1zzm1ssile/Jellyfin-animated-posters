@@ -31,8 +31,28 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public override string Description =>
         "Keeps an animated cover on every library, rendered on the server and renewed on a schedule.";
 
-    /// <summary>No pages yet: the Dashboard page is registered here once it exists.</summary>
-    public IEnumerable<PluginPageInfo> GetPages() => Array.Empty<PluginPageInfo>();
+    /// <summary>
+    /// The Dashboard page and its script. The page loads the script by its page name
+    /// (<c>data-controller="__plugin/librarycovers.js"</c>), so the two names go together.
+    /// </summary>
+    public IEnumerable<PluginPageInfo> GetPages() =>
+    [
+        new PluginPageInfo
+        {
+            Name = "LibraryCoverMaker",
+            DisplayName = "Library Cover Maker",
+            EmbeddedResourcePath = GetType().Namespace + ".Web.covers.html",
+
+            // Adds the page to the Plugins section of the Dashboard's sidebar.
+            EnableInMainMenu = true,
+            MenuIcon = "image",
+        },
+        new PluginPageInfo
+        {
+            Name = "librarycovers.js",
+            EmbeddedResourcePath = GetType().Namespace + ".Web.covers.js",
+        },
+    ];
 }
 
 /// <summary>Settings that apply to every library.</summary>
