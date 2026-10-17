@@ -215,6 +215,7 @@ export async function pageChecks(ctx) {
     });
 
     await step('Slot_search_and_backdrop_pick', async () => {
+        await page.locator('#lcm-mode button[data-mode="Art"]').click(); // backdrops are picked in art mode
         const slot = page.locator('.lcm-slot[data-slot="1"]');
         await slot.getByRole('button', { name: 'Choose', exact: true }).click();
         await slot.locator('input[type=search]').fill('Film 2');
@@ -344,14 +345,15 @@ export async function pageChecks(ctx) {
 
     await step('Default_mode_switch', async () => {
         await clearStatus();
-        await page.locator('#lcm-default-mode').selectOption('Scenes');
-        await waitStatus(/New libraries start with scenes/, 'lcm-status', 20_000);
-        expect((await ok(covers('/Settings'))).DefaultMode === 'Scenes', 'Scenes was not saved');
-        await clearStatus();
+        expect((await ok(covers('/Settings'))).DefaultMode === 'Scenes', 'a fresh install does not default to Scenes');
         await page.locator('#lcm-default-mode').selectOption('Art');
         await waitStatus(/official artwork/, 'lcm-status', 20_000);
         expect((await ok(covers('/Settings'))).DefaultMode === 'Art', 'Art was not saved');
-        return 'Scenes, then Art';
+        await clearStatus();
+        await page.locator('#lcm-default-mode').selectOption('Scenes');
+        await waitStatus(/New libraries start with scenes/, 'lcm-status', 20_000);
+        expect((await ok(covers('/Settings'))).DefaultMode === 'Scenes', 'Scenes was not saved');
+        return 'Scenes by default, then Art, then Scenes';
     });
 
     await step('Generate_all_now', async () => {

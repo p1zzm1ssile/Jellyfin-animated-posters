@@ -31,9 +31,10 @@ namespace Jellyfin.Plugin.LibraryCoverMaker.Covers;
 /// <see cref="TitlePicker"/>; each becomes a slot (art: a backdrop; scenes: a clip that <see cref="SceneFinder"/>
 /// chose, from the first allowed episode of season one for a series; a locked moment gets its crop measured). A title
 /// that gives no slot is replaced by another eligible title, two titles at most per slot. Art mode that ends with no
-/// slot (homevideos and mixed libraries usually have no artwork) tries scenes, and a cover with no slot at all is the
-/// library's name on a plain background. When fewer slots came out than planned, each lasts longer, and every clip is
-/// chosen again at the longer length, so that what is rendered is what was checked.
+/// slot (homevideos and mixed libraries usually have no artwork) tries scenes, scenes mode that ends with no slot
+/// tries artwork, and a cover with no slot at all is the library's name on a plain background. When fewer slots came
+/// out than planned, each lasts longer, and every clip is chosen again at the longer length, so that what is rendered
+/// is what was checked.
 /// </para>
 /// <para>
 /// The new cover's record lists, in <see cref="CoverRecord.TitleIds"/>, the titles in slot order and after them the
@@ -371,6 +372,13 @@ public sealed class CoverBuilder
         {
             slots = await FillAsync(
                 library, viewers, candidates, CoverMode.Scenes, style, locks, previous, random, tried, ct)
+                .ConfigureAwait(false);
+        }
+        else if (slots.Count == 0 && state.Mode == CoverMode.Scenes && candidates.Any(title => title.HasBackdrop))
+        {
+            // No title gave a clip (no file on disk, or only music videos without files): artwork is next.
+            slots = await FillAsync(
+                library, viewers, candidates, CoverMode.Art, style, locks, previous, random, tried, ct)
                 .ConfigureAwait(false);
         }
 

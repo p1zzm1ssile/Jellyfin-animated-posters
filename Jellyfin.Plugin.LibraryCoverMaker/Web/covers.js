@@ -211,7 +211,7 @@
 
     // Jellyfin writes enums as names; an older or differently configured server might send numbers.
     function modeName(value) {
-        return typeof value === 'number' ? MODES[value] || 'Art' : value || 'Art';
+        return typeof value === 'number' ? MODES[value] || 'Scenes' : value || 'Scenes';
     }
 
     function formatName(value) {

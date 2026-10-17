@@ -155,7 +155,7 @@ public class LibraryCoverState : IJsonOnDeserializing, IJsonOnDeserialized
     public Guid LibraryId { get; set; }
 
     /// <summary>How the library's cover content is chosen.</summary>
-    public CoverMode Mode { get; set; } = CoverMode.Art;
+    public CoverMode Mode { get; set; } = CoverMode.Scenes;
 
     /// <summary>
     /// Whether the library is out of the rotation, so the schedule leaves its cover alone: an admin uploaded,

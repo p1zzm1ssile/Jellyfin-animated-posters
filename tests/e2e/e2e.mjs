@@ -568,7 +568,7 @@ const DEFAULT_STYLE = {
     LengthSeconds: 6
 };
 
-/** Puts a library back as the scheduled task leaves it (art, the default style, nothing locked, unpinned) with a
+/** Puts a library back as the scheduled task leaves it (scenes, the default style, nothing locked, unpinned) with a
  *  generated cover, building one only when something differs. */
 async function resetLibrary(name) {
     if ((await coverState(name)).Pinned) {
@@ -576,11 +576,11 @@ async function resetLibrary(name) {
     }
     const state = await coverState(name);
     const same =
-        state.Mode === 'Art' &&
+        state.Mode === 'Scenes' &&
         slotKey(state.Slots) === slotKey(slots()) &&
         currentRecord(state)?.Origin === 'Generated' &&
         Object.entries(DEFAULT_STYLE).every(([key, value]) => state.Style[key] === value);
-    return same ? state : rebuild(name, { Mode: 'Art', Style: DEFAULT_STYLE, Slots: slots() });
+    return same ? state : rebuild(name, { Mode: 'Scenes', Style: DEFAULT_STYLE, Slots: slots() });
 }
 
 /** The cover a library shows now: its state and record, and its file in the store, decoded. */
@@ -1057,15 +1057,15 @@ await check('covers: Tvshows_and_mixed_libraries_build_and_apply', async () => {
     // A build checks every title of its cover against the library when it commits (GetCollectionFolders on the
     // real server), so a cover that was applied is the proof.
     await resetLibrary('Shows');
+    // Scenes, the default: a clip of the first episode of season one, listed after its series.
     let record = await applied('Shows');
-    expect(record.TitleIds.map(N).join() === N(series.Id), `the art cover shows ${record.TitleIds.join(', ')}`);
-    // Scenes: a clip of the first episode of season one, listed after its series.
-    await rebuild('Shows', { Mode: 'Scenes' });
-    record = await applied('Shows');
     expect(
         record.TitleIds.map(N).join() === [series.Id, first.Id].map(N).join(),
         `the scenes cover shows ${record.TitleIds.join(', ')}, not the series and S01E01`
     );
+    await rebuild('Shows', { Mode: 'Art' });
+    record = await applied('Shows');
+    expect(record.TitleIds.map(N).join() === N(series.Id), `the art cover shows ${record.TitleIds.join(', ')}`);
     await resetLibrary('Shows');
     // Mixed has no collection type: its two films, from scenes since they have no artwork.
     const mixed = await titlesOf('Mixed');
@@ -1079,7 +1079,7 @@ await check('covers: Tvshows_and_mixed_libraries_build_and_apply', async () => {
                 .join(),
         `Mixed shows ${record.TitleIds.join(', ')}`
     );
-    return 'Shows in art and in scenes, Mixed';
+    return 'Shows in scenes and in art, Mixed';
 });
 
 /** The darkest edge of a picture: the mean luma of a band 12 px deep along each side, the lowest of the four. */
