@@ -13,8 +13,11 @@
 #   CONTAINER_NAME=lcm-e2e-b PORT=18100 WORK=/tmp/lcm-e2e-b tests/e2e/run.sh
 # and a second run from the same checkout would also share the plugin project's bin/ and obj/ folders.
 #
-# Needs: the .NET 10 SDK, docker (a reachable daemon), ffmpeg (see make-media.sh), curl and node 20 or later.
-# Nothing else: the checks use only node's own fetch.
+# Needs: the .NET 10 SDK, docker (a reachable daemon), ffmpeg (see make-media.sh), curl, node 20 or later, and for
+# the page checks Playwright with its Chromium (`playwright install chromium`). Playwright is found through
+# NODE_PATH; when NODE_PATH is not set and a `playwright` command is on PATH (a global npm install, or mise's
+# npm:playwright), the node_modules folder it belongs to is used. The first run also builds a small image from
+# alpine:3.22 with ImageMagick and libwebp's tools (see e2e.mjs), which needs the internet once.
 #
 # Where the .NET SDK comes from: DOTNET holds the command, split on spaces, and defaults to "dotnet", which is
 # what CI has after setup-dotnet. On a machine whose SDKs come from mise:
@@ -30,7 +33,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 E2E="$ROOT/tests/e2e"
 WORK="${WORK:-$E2E/.work}"
 # A fixed image (Jellyfin 12.2), so a run only changes when the code or this line does.
-IMAGE="${JELLYFIN_IMAGE:-jellyfin/jellyfin:12.2@sha256:357724bf0ae27a672c7cbaa899db2d9abeb13dbd8657ccce750258a4c059d037}"
+PINNED_IMAGE=jellyfin/jellyfin:12.2@sha256:357724bf0ae27a672c7cbaa899db2d9abeb13dbd8657ccce750258a4c059d037
+IMAGE="${JELLYFIN_IMAGE:-$PINNED_IMAGE}"
 NAME="${CONTAINER_NAME:-lcm-e2e}"
 PORT="${PORT:-18096}"
 LABEL=org.library-cover-maker.e2e
@@ -55,22 +59,26 @@ cleanup() {
     wait "$node_pid" 2>/dev/null || true
   fi
   if [ "${KEEP:-0}" = 1 ]; then
-    if [ "$container_made" = 1 ] && [ "$(docker container inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" = true ]; then
+    if [ "$container_made" = 1 ] \
+      && [ "$(docker container inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" = true ]; then
       echo "== KEEP=1: Jellyfin stays up on http://127.0.0.1:$PORT (admin account as in e2e.mjs), data in $WORK"
-      echo "   run the checks again with: JF=http://127.0.0.1:$PORT CONTAINER=$NAME node tests/e2e/e2e.mjs [names]"
+      echo "   run the checks again with:"
+      echo "   JF=http://127.0.0.1:$PORT CONTAINER=$NAME WORK=$WORK node tests/e2e/e2e.mjs [names]"
       echo "   stop it with: docker rm -f $NAME"
     fi
     return
   fi
   # Only a container this script made (it carries the label) is removed, whatever happened to the name.
-  if [ "$container_made" = 1 ] && [ "$(docker container inspect -f "{{index .Config.Labels \"$LABEL\"}}" "$NAME" 2>/dev/null)" = 1 ]; then
+  if [ "$container_made" = 1 ] \
+    && [ "$(docker container inspect -f "{{index .Config.Labels \"$LABEL\"}}" "$NAME" 2>/dev/null)" = 1 ]; then
     docker rm -f "$NAME" >/dev/null 2>&1 || true
   fi
   if [ "$work_made" = 1 ]; then
     if [ "$code" = 0 ]; then
       rm -rf -- "$WORK"
     else
-      echo "== The run did not pass, so the test data stays in $WORK (Jellyfin's own log files are in $WORK/config/log). The next run replaces it."
+      echo "== The run did not pass, so the test data stays in $WORK" \
+        "(Jellyfin's own log files are in $WORK/config/log). The next run replaces it."
     fi
   fi
 }
@@ -83,9 +91,13 @@ trap 'exit 143' TERM
 for tool in docker ffmpeg ffprobe curl node; do
   command -v "$tool" >/dev/null || die "$tool is not installed or not on PATH"
 done
-docker info >/dev/null 2>&1 || die "cannot reach the Docker daemon: is it running, and may this user use it? ('docker info' fails)"
-node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)' || die "node 20 or later is needed, found $(node --version)"
-sdk="$("${DOTNET_CMD[@]}" --version 2>/dev/null)" || die "cannot run '${DOTNET_CMD[*]}'. Set DOTNET to a command that runs the .NET 10 SDK, for example DOTNET='mise exec dotnet@10.0.400 -- dotnet'"
+docker info >/dev/null 2>&1 \
+  || die "cannot reach the Docker daemon: is it running, and may this user use it? ('docker info' fails)"
+node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)' \
+  || die "node 20 or later is needed, found $(node --version)"
+sdk="$("${DOTNET_CMD[@]}" --version 2>/dev/null)" \
+  || die "cannot run '${DOTNET_CMD[*]}'. Set DOTNET to a command that runs the .NET 10 SDK," \
+    "for example DOTNET='mise exec dotnet@10.0.400 -- dotnet'"
 case "$sdk" in
   10.*) ;;
   *) die "the plugin needs the .NET 10 SDK, but '${DOTNET_CMD[*]}' is $sdk" ;;
@@ -137,7 +149,8 @@ deadline=$((SECONDS + 180))
 while [ "$SECONDS" -lt "$deadline" ]; do
   # Jellyfin answers from a start-up page at first, and its /System/Info/Public gives 200 too. Only the real
   # server's answer has StartupWizardCompleted in it.
-  if body="$(curl -sf --max-time 5 "http://127.0.0.1:$PORT/System/Info/Public")" && grep -q '"StartupWizardCompleted"' <<<"$body"; then
+  if body="$(curl -sf --max-time 5 "http://127.0.0.1:$PORT/System/Info/Public")" \
+    && grep -q '"StartupWizardCompleted"' <<<"$body"; then
     ready=1
     break
   fi
@@ -168,11 +181,20 @@ plugin_errors() {
     END { flush() }'
 }
 
+# A global npm install puts the command at <prefix>/bin/playwright and the package at
+# <prefix>/lib/node_modules/playwright, which the command links to.
+if [ -z "${NODE_PATH:-}" ] && command -v playwright >/dev/null; then
+  cli="$(readlink -f "$(command -v playwright)")"
+  case "$cli" in
+    */node_modules/playwright/cli.js) export NODE_PATH="${cli%/playwright/cli.js}" ;;
+  esac
+fi
+
 echo "== Running the checks"
 status=0
 # In the background, so that a signal sent to this shell acts at once: a trap otherwise waits for the foreground
 # command to end. The cleanup stops node if it is still running.
-JF="http://127.0.0.1:$PORT" CONTAINER="$NAME" node "$E2E/e2e.mjs" "$@" &
+JF="http://127.0.0.1:$PORT" CONTAINER="$NAME" WORK="$WORK" node "$E2E/e2e.mjs" "$@" &
 node_pid=$!
 wait "$node_pid" || status=$?
 node_pid=
@@ -190,7 +212,8 @@ if [ "$status" != 0 ]; then
   # Jellyfin logs plenty of harmless warnings of its own at start-up, so only the plugin's are listed.
   echo "== Errors from the server log, and warnings that name the plugin (last 20 lines)"
   { docker logs "$NAME" 2>&1 \
-      | grep -iE '^\[[0-9][0-9:. +-]*\] \[(ERR|FTL)\]|^\[[0-9][0-9:. +-]*\] \[WRN\].*(LibraryCoverMaker|Library Cover Maker)' \
+      | grep -iE -e '^\[[0-9][0-9:. +-]*\] \[(ERR|FTL)\]' \
+        -e '^\[[0-9][0-9:. +-]*\] \[WRN\].*(LibraryCoverMaker|Library Cover Maker)' \
       | tail -20; } || true
 fi
 exit "$status"
