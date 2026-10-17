@@ -259,6 +259,70 @@ public sealed class SceneFinder
         return null;
     }
 
+    /// <summary>
+    /// The crop that takes away the burned-in black bars of the clip of <paramref name="clipSeconds"/> that starts at
+    /// <paramref name="start"/>, for a moment an admin chose. Measured in one pass over exactly that clip, like the
+    /// clips <see cref="FindStartAsync"/> checks; a scene cut inside the clip does not matter here, since the moment is
+    /// the admin's. Null when the video has no bars worth cutting, and also when the clip cannot be read, the file is
+    /// missing or the size of the picture is not known: a bad title is never an error (it is logged).
+    /// </summary>
+    /// <param name="video">The video. For a series the caller chooses the episode.</param>
+    /// <param name="start">Second of the video where the clip starts.</param>
+    /// <param name="clipSeconds">How long the clip lasts. Positive and finite.</param>
+    /// <param name="ct">Cancels the measure.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="start"/> is negative or not finite, or <paramref name="clipSeconds"/> is not a positive,
+    /// finite number.
+    /// </exception>
+    /// <exception cref="OperationCanceledException">Cancelled.</exception>
+    public async Task<CropRect?> CropAtAsync(Video video, double start, double clipSeconds, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(video);
+        if (!double.IsFinite(start) || start < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(start), start, "A clip starts at a second of the video.");
+        }
+
+        if (!double.IsFinite(clipSeconds) || clipSeconds <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(clipSeconds), clipSeconds, "A clip needs a positive length.");
+        }
+
+        ct.ThrowIfCancellationRequested();
+
+        var path = video.Path;
+        if (string.IsNullOrWhiteSpace(path) || !System.IO.Path.IsPathRooted(path) || !File.Exists(path))
+        {
+            _log.LogDebug(
+                "Library Cover Maker: {Title} has no video file to measure a crop in ({Path})",
+                video.Name,
+                path);
+            return null;
+        }
+
+        var probe = Probe(video);
+        if (probe.Size is null)
+        {
+            _log.LogDebug(
+                "Library Cover Maker: the picture size of {Title} is not known, so it gets no crop",
+                video.Name);
+            return null;
+        }
+
+        var (outcome, crop) = await CheckClipAsync(path, start, clipSeconds, probe, ct).ConfigureAwait(false);
+        if (outcome is ClipOutcome.Clean or ClipOutcome.Cut)
+        {
+            return crop;
+        }
+
+        _log.LogWarning(
+            "Library Cover Maker: the clip at {Start} s of {Title} could not be measured, so it is shown without a "
+            + "crop",
+            start,
+            video.Name);
+        return null;
+    }
+
     // Only the caller's own token is a cancellation; an OperationCanceledException from inside a manager, such as a
     // timeout of its own, is a failure for this title.
     private static bool IsCancellation(Exception ex, CancellationToken ct) =>
@@ -648,14 +712,18 @@ public sealed class SceneFinder
                 return (ClipOutcome.Unreadable, null);
             }
 
-            if (File.ReadLines(cutFile).Any(line => line.StartsWith("lavfi.scd.time", StringComparison.Ordinal)))
-            {
-                return (ClipOutcome.Cut, null);
-            }
-
+            // The crop is measured before the cut test, so that a clip with a cut still says where its picture is:
+            // an admin's own moment is used with its cut, and must not show the bars.
+            var cut = File.ReadLines(cutFile).Any(line => line.StartsWith("lavfi.scd.time", StringComparison.Ordinal));
             var boxes = ReadBoxes(cropFile, out var sampled);
             var needed = Math.Max(1, (int)Math.Ceiling(clipSeconds * CropSamplesPerSecond) - SampleTolerance);
-            if (sampled < needed || boxes.Count == 0)
+            var readable = sampled >= needed && boxes.Count > 0;
+            if (cut)
+            {
+                return (ClipOutcome.Cut, readable ? CropFrom(boxes, probe.Size) : null);
+            }
+
+            if (!readable)
             {
                 _log.LogDebug(
                     "Library Cover Maker: the clip at {Start} s of {Path} gave {Seen} of the {Needed} frames it needs",

@@ -957,6 +957,57 @@ public sealed class SceneFinderTests : IDisposable
 
     // ---- never throws for a bad title ----
 
+    // ---- the crop of a locked moment ----
+
+    [LinuxFact]
+    public async Task A_locked_moment_gets_the_crop_of_its_clip_even_across_a_cut()
+    {
+        SetClip(null, ClipText(cut: true, box: (0, 1279, 90, 629)));
+
+        var crop = await Finder().CropAtAsync(MakeVideo(runtimeSeconds: 120), 30, Clip, CancellationToken.None);
+
+        Assert.Equal(new CropRect(0, 90, 1280, 540), crop);
+        Assert.Equal(new[] { 30.0 }, ClipStarts());
+    }
+
+    [LinuxFact]
+    public async Task A_locked_moment_without_bars_gets_no_crop()
+    {
+        SetClip(null, ClipText());
+
+        Assert.Null(await Finder().CropAtAsync(MakeVideo(runtimeSeconds: 120), 30, Clip, CancellationToken.None));
+        Assert.Single(ClipStarts());
+    }
+
+    [LinuxFact]
+    public async Task A_locked_moment_that_cannot_be_measured_gets_no_crop_and_no_error()
+    {
+        SetClip(null, ClipText(samples: 1, box: (0, 1279, 90, 629)));
+
+        // No file, or no known picture size: nothing to run at all.
+        Assert.Null(await Finder().CropAtAsync(MakeVideo(exists: false), 30, Clip, CancellationToken.None));
+        var probe = _probe;
+        _probe = null;
+        Assert.Null(await Finder().CropAtAsync(MakeVideo(runtimeSeconds: 120), 30, Clip, CancellationToken.None));
+        Assert.Empty(ClipStarts());
+
+        // Too few frames read: no crop, a warning, and no exception.
+        _probe = probe;
+        var log = new RecordingLogger();
+        Assert.Null(await Finder(log).CropAtAsync(MakeVideo(runtimeSeconds: 120), 30, Clip, CancellationToken.None));
+        Assert.Contains(log.Messages, message => message.Contains("could not be measured", StringComparison.Ordinal));
+        Assert.Single(ClipStarts());
+    }
+
+    [LinuxTheory]
+    [InlineData(-1, 4)]
+    [InlineData(double.NaN, 4)]
+    [InlineData(10, 0)]
+    [InlineData(10, double.PositiveInfinity)]
+    public async Task A_locked_moment_that_is_not_a_time_is_refused(double start, double clip) =>
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => Finder().CropAtAsync(MakeVideo(runtimeSeconds: 120), start, clip, CancellationToken.None));
+
     [LinuxFact]
     public async Task A_missing_file_is_no_choice()
     {
@@ -1385,6 +1436,17 @@ public sealed class SceneFinderFfmpegTests : IClassFixture<SceneFinderFfmpegTest
         var choice = await Finder((8, 0.9)).FindStartAsync(VideoOf("pillar.mp4"), Clip, CancellationToken.None);
 
         Assert.Equal(new CropRect(160, 0, 960, 720), Assert.IsType<SceneChoice>(choice).Crop);
+    }
+
+    [DockerFact]
+    public async Task A_locked_moment_of_a_letterboxed_clip_gets_the_crop_of_its_picture()
+    {
+        var finder = Finder();
+
+        Assert.Equal(
+            new CropRect(0, 90, 1280, 540),
+            await finder.CropAtAsync(VideoOf("letter.mp4"), 8, Clip, CancellationToken.None));
+        Assert.Null(await finder.CropAtAsync(VideoOf("clean.mp4"), 8, Clip, CancellationToken.None));
     }
 
     [DockerFact]
