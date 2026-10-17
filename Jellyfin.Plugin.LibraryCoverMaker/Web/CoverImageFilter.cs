@@ -234,8 +234,8 @@ public sealed class CoverImageFilter : IAsyncActionFilter
         {
             _log.LogWarning(
                 ex,
-                "Library Cover Maker: could not tell whether the Primary image of library {LibraryId} is an animated "
-                + "WebP, so Jellyfin answers the request",
+                "Jellyfin Animated Posters: could not tell whether the Primary image of library {LibraryId} is an "
+                + "animated WebP, so Jellyfin answers the request",
                 libraryId);
             return null;
         }
@@ -321,8 +321,8 @@ public sealed class CoverImageFilter : IAsyncActionFilter
                 {
                     _log.LogWarning(
                         ex,
-                        "Library Cover Maker: the Primary image of library {LibraryId} ({Path}) could not be read for "
-                        + "{Seconds} s, so Jellyfin answers the requests for it until the file changes",
+                        "Jellyfin Animated Posters: the Primary image of library {LibraryId} ({Path}) could not be "
+                        + "read for {Seconds} s, so Jellyfin answers the requests for it until the file changes",
                         libraryId,
                         image.Path,
                         _busyWait.TotalSeconds);

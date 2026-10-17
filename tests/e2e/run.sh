@@ -177,7 +177,7 @@ plugin_errors() {
       bad = (level == "ERR" || level == "FTL")
     }
     { entry = entry $0 "\n" }
-    tolower($0) ~ /librarycovermaker|library cover maker/ { named = 1 }
+    tolower($0) ~ /librarycovermaker|jellyfin animated posters/ { named = 1 }
     END { flush() }'
 }
 
@@ -213,7 +213,7 @@ if [ "$status" != 0 ]; then
   echo "== Errors from the server log, and warnings that name the plugin (last 20 lines)"
   { docker logs "$NAME" 2>&1 \
       | grep -iE -e '^\[[0-9][0-9:. +-]*\] \[(ERR|FTL)\]' \
-        -e '^\[[0-9][0-9:. +-]*\] \[WRN\].*(LibraryCoverMaker|Library Cover Maker)' \
+        -e '^\[[0-9][0-9:. +-]*\] \[WRN\].*(LibraryCoverMaker|Jellyfin Animated Posters)' \
       | tail -20; } || true
 fi
 exit "$status"

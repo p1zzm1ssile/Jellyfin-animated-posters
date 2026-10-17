@@ -436,7 +436,7 @@ async function openPage(browser, { JF, ADMIN, problems }) {
     await page.evaluate(() => {
         location.hash = '#/dashboard';
     });
-    await page.locator('a', { hasText: 'Library Cover Maker' }).first().click({ timeout: 20_000 });
+    await page.locator('a', { hasText: 'Jellyfin Animated Posters' }).first().click({ timeout: 20_000 });
     await page.locator('.lcm-card').first().waitFor({ timeout: 20_000 });
     return page;
 }

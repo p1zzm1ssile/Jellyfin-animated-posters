@@ -117,8 +117,8 @@ public class CoverStore
                 File.Copy(path, copy, overwrite: true);
                 _log.LogWarning(
                     ex,
-                    "Library Cover Maker: could not read {Path}, so a copy was kept as {Copy} and library {LibraryId} "
-                    + "starts from the defaults, pinned so that its cover is kept",
+                    "Jellyfin Animated Posters: could not read {Path}, so a copy was kept as {Copy} and library "
+                    + "{LibraryId} starts from the defaults, pinned so that its cover is kept",
                     path,
                     copy,
                     libraryId);
@@ -280,7 +280,7 @@ public class CoverStore
             {
                 _log.LogWarning(
                     ex,
-                    "Library Cover Maker: could not remove the stored covers of library {LibraryId}",
+                    "Jellyfin Animated Posters: could not remove the stored covers of library {LibraryId}",
                     libraryId);
             }
         }
@@ -315,7 +315,7 @@ public class CoverStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _log.LogWarning(ex, "Library Cover Maker: could not delete {Path}", path);
+            _log.LogWarning(ex, "Jellyfin Animated Posters: could not delete {Path}", path);
         }
     }
 }

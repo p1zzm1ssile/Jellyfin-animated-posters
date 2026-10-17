@@ -1,14 +1,14 @@
 <img src="Jellyfin.Plugin.LibraryCoverMaker/logo.png" width="96" alt="">
 
-# Library Cover Maker
+# Jellyfin Animated Posters
 
 A Jellyfin plugin that keeps an animated cover on every library. The covers are drawn on the server, saved as each
 library's Primary image, and made again on a schedule, so the home screen changes over time without anyone
 uploading anything.
 
 The project and its original look (the rounded white frame, the big serif name, the darkened picture) are by
-p1zzm1ssile (Graham). It started as a page in a container and is now a plugin; the original look is still one click
-away in the style settings.
+p1zzm1ssile (Graham). It started as Library Cover Maker, a page in a container, and is now a plugin called Jellyfin
+Animated Posters; the original look is still one click away in the style settings.
 
 The plugin needs Jellyfin 12. It runs on a household server with 22 plugins installed; the client table below says
 what has been checked on real devices.
@@ -20,11 +20,11 @@ No release is published yet, so the catalog stays empty until the first tagged v
 1. In Jellyfin, open **Dashboard**, then **Plugins**, then **Repositories**, and add this repository URL:
 
    ```
-   https://raw.githubusercontent.com/p1zzm1ssile/Library-Cover-Maker/main/manifest.json
+   https://raw.githubusercontent.com/p1zzm1ssile/Jellfin-animated-posters/main/manifest.json
    ```
 
-2. Open the **Catalog**, install **Library Cover Maker**, and restart Jellyfin.
-3. Open **Library Cover Maker** in the Dashboard menu.
+2. Open the **Catalog**, install **Jellyfin Animated Posters**, and restart Jellyfin.
+3. Open **Jellyfin Animated Posters** in the Dashboard menu.
 
 ## What it does
 

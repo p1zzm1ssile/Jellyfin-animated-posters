@@ -173,7 +173,7 @@ public sealed class CoverBuilder
         if (!library.Enabled)
         {
             _log.LogDebug(
-                "Library Cover Maker: library {Library} is switched off, so its cover is not built",
+                "Jellyfin Animated Posters: library {Library} is switched off, so its cover is not built",
                 library.Name);
             return new BuildResult(false, null, 0);
         }
@@ -246,8 +246,8 @@ public sealed class CoverBuilder
             var errors = ex is CoverRenderException render ? render.Errors : string.Empty;
             _log.LogWarning(
                 ex,
-                "Library Cover Maker: the cover of library {Library} could not be rendered, so it keeps its current "
-                + "cover: {Error}. ffmpeg said: {Errors}",
+                "Jellyfin Animated Posters: the cover of library {Library} could not be rendered, so it keeps its "
+                + "current cover: {Error}. ffmpeg said: {Errors}",
                 library.Name,
                 ex.Message,
                 errors);
@@ -338,7 +338,7 @@ public sealed class CoverBuilder
         var said = CoverRules.UnlockNotice(null, [], hidden, gone.Count);
         state.Notice = CoverRules.AddUnlocked(state.Notice, said);
         state.NoticeAt = DateTimeOffset.UtcNow;
-        _log.LogInformation("Library Cover Maker: {Notice} (library {LibraryId})", said, state.LibraryId);
+        _log.LogInformation("Jellyfin Animated Posters: {Notice} (library {LibraryId})", said, state.LibraryId);
         return said;
     }
 
@@ -387,7 +387,7 @@ public sealed class CoverBuilder
             // Titles were there and none gave a slot: the name-only cover then hides a failure (all files gone, or
             // ffmpeg unable to read any clip), so it is said where an admin looks.
             _log.LogWarning(
-                "Library Cover Maker: none of the {Count} titles tried for library {Library} gave a picture or a "
+                "Jellyfin Animated Posters: none of the {Count} titles tried for library {Library} gave a picture or a "
                 + "clip, so it gets the name-only cover",
                 tried.Count,
                 library.Name);
@@ -513,7 +513,7 @@ public sealed class CoverBuilder
             if (choice is null)
             {
                 _log.LogDebug(
-                    "Library Cover Maker: title {TitleId} of library {Library} gave no {Mode} slot",
+                    "Jellyfin Animated Posters: title {TitleId} of library {Library} gave no {Mode} slot",
                     title,
                     library.Name,
                     mode);
@@ -525,7 +525,7 @@ public sealed class CoverBuilder
         {
             _log.LogWarning(
                 ex,
-                "Library Cover Maker: title {TitleId} of library {Library} could not be used",
+                "Jellyfin Animated Posters: title {TitleId} of library {Library} could not be used",
                 title,
                 library.Name);
             return null;
@@ -644,7 +644,7 @@ public sealed class CoverBuilder
                     {
                         _log.LogWarning(
                             ex,
-                            "Library Cover Maker: the new cover of library {Library} could not be applied",
+                            "Jellyfin Animated Posters: the new cover of library {Library} could not be applied",
                             library.Name);
                         error = "The cover could not be applied: " + ex.Message;
                         Failed(state, error, mustReplace, unlocked);
@@ -689,13 +689,13 @@ public sealed class CoverBuilder
         if (discarded)
         {
             _log.LogInformation(
-                "Library Cover Maker: library {Library} was changed by an admin while its cover rendered, so the "
+                "Jellyfin Animated Posters: library {Library} was changed by an admin while its cover rendered, so the "
                 + "render was dropped",
                 library.Name);
         }
         else if (error is HiddenAtCommit or GoneAtCommit)
         {
-            _log.LogWarning("Library Cover Maker: {Error} (library {Library})", error, library.Name);
+            _log.LogWarning("Jellyfin Animated Posters: {Error} (library {Library})", error, library.Name);
         }
 
         return new BuildResult(run.Applied, error, slotCount);
@@ -773,7 +773,7 @@ public sealed class CoverBuilder
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _log.LogWarning(ex, "Library Cover Maker: could not delete {Path}", path);
+            _log.LogWarning(ex, "Jellyfin Animated Posters: could not delete {Path}", path);
         }
     }
 
@@ -884,7 +884,7 @@ internal sealed class JellyfinCoverSource(
         var plays = PlayCounts(allowed, viewers);
 
         log.LogDebug(
-            "Library Cover Maker: library {Library} has {Allowed} titles that its {Users} viewers may all see",
+            "Jellyfin Animated Posters: library {Library} has {Allowed} titles that its {Users} viewers may all see",
             info.Name,
             allowed.Count,
             viewers.Count);

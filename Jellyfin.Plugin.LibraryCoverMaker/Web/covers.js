@@ -1,4 +1,4 @@
-// The Library Cover Maker page of the Dashboard: the grid of libraries and the editor of one library.
+// The Jellyfin Animated Posters page of the Dashboard: the grid of libraries and the editor of one library.
 //
 // Jellyfin loads this file as a module when the page opens (data-controller="__plugin/librarycovers.js") and only
 // once, so the page is wired up on every "viewshow" of its element, which may be a new element each visit.

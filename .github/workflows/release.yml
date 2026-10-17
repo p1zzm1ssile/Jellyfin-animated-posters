@@ -1,7 +1,7 @@
 name: Release
 
 # Push a version tag to check, test, build and release the plugin:
-#   v1.0.0  ->  checks the tag, runs the tests, builds Library Cover Maker 1.0.0.0, creates the GitHub
+#   v1.0.0  ->  checks the tag, runs the tests, builds Jellyfin Animated Posters 1.0.0.0, creates the GitHub
 #               release and adds the version to manifest.json
 #
 # Before tagging, raise <Version> in the project file to 1.0.0.0, give CHANGELOG.md a "## [1.0.0]"
@@ -23,14 +23,14 @@ env:
   PLUGIN_DLL: 'Jellyfin.Plugin.LibraryCoverMaker.dll'
   PLUGIN_FONTS_DIR: 'Jellyfin.Plugin.LibraryCoverMaker/Rendering/Fonts'
   PLUGIN_GUID: 'ba3b88b5-029c-4a6f-90b3-734af8385652'
-  PLUGIN_NAME: 'Library Cover Maker'
+  PLUGIN_NAME: 'Jellyfin Animated Posters'
   PLUGIN_OWNER: 'p1zzm1ssile'
   PLUGIN_CATEGORY: 'General'
   PLUGIN_TARGET_ABI: '12.0.0.0'   # built against Jellyfin 12.0.0
   PLUGIN_DESCRIPTION: 'Keeps an animated cover on every library, rendered on the server and renewed on a schedule.'
   PLUGIN_OVERVIEW: 'Animated covers for your libraries, made on the server and renewed every week.'
   # A backslash at the end of a line inside double quotes joins the next line with no space (YAML).
-  PLUGIN_IMAGE: "https://raw.githubusercontent.com/p1zzm1ssile/Library-Cover-Maker/main/\
+  PLUGIN_IMAGE: "https://raw.githubusercontent.com/p1zzm1ssile/Jellfin-animated-posters/main/\
     Jellyfin.Plugin.LibraryCoverMaker/logo.png"
 
 # The jobs run on Ubuntu 24.04, not ubuntu-latest, like tests.yml (see the note there).

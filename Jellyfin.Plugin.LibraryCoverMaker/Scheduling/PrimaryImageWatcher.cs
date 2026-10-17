@@ -173,7 +173,7 @@ public sealed class PrimaryImageWatcher : IHostedService, IDisposable
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "Library Cover Maker: could not look at an update of a library's images");
+            _log.LogWarning(ex, "Jellyfin Animated Posters: could not look at an update of a library's images");
         }
     }
 
@@ -189,8 +189,8 @@ public sealed class PrimaryImageWatcher : IHostedService, IDisposable
             if (kept)
             {
                 _log.LogInformation(
-                    "Library Cover Maker: the Primary image of library {LibraryId} was changed outside the plugin, so "
-                    + "it is kept as an uploaded cover and the library is pinned",
+                    "Jellyfin Animated Posters: the Primary image of library {LibraryId} was changed outside the "
+                    + "plugin, so it is kept as an uploaded cover and the library is pinned",
                     libraryId);
             }
         }
@@ -202,7 +202,8 @@ public sealed class PrimaryImageWatcher : IHostedService, IDisposable
         {
             _log.LogWarning(
                 ex,
-                "Library Cover Maker: could not keep the new Primary image of library {LibraryId} as an uploaded cover",
+                "Jellyfin Animated Posters: could not keep the new Primary image of library {LibraryId} as an uploaded "
+                + "cover",
                 libraryId);
         }
     }

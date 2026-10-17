@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Library Cover Maker are recorded here. The newest version is at the top.
+All notable changes to Jellyfin Animated Posters are recorded here. The newest version is at the top.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses [semantic
 versioning](https://semver.org): given a version X.Y.Z, Z changes for fixes, Y for new features, X for changes that
@@ -59,7 +59,7 @@ in `manifest.json`.
   darkened picture and with a soft shadow, so it stays readable over moving pictures. A library whose style still had
   the old defaults (Bodoni Moda at 120 in the white frame) moves to the Jellyfin look; one whose font, size or frame
   was changed keeps it.
-- **The look of the Library Cover Maker page, as an option.** A rounded white frame and the library name in uppercase
+- **The look of the original page, as an option.** A rounded white frame and the library name in uppercase
   in one of five bundled fonts, with text size, darkening, shadow, length (2 to 30 seconds) and fade. The bundled fonts
   ship with the plugin under the SIL Open Font License, with their license texts, and nothing is fetched from Google
   Fonts or any other service while it runs. A title in a script the chosen font lacks is drawn with an installed font
