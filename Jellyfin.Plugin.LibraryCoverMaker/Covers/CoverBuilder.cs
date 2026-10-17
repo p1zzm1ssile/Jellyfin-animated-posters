@@ -355,17 +355,34 @@ public sealed class CoverBuilder
         var locks = state.Slots.Take(slotCount).Where(slot => slot.Locked).ToList();
         var previous = CoverRules.Current(state)?.TitleIds ?? [];
 
+        // The scene finder writes its result files there; the render queue deletes the folder at each start.
+        Directory.CreateDirectory(_store.TempFolder);
+
         var slots = new List<Filled>();
+        var tried = new HashSet<Guid>();
         if (state.Mode != CoverMode.Art || candidates.Any(title => title.HasBackdrop))
         {
-            slots = await FillAsync(library, viewers, candidates, state.Mode, style, locks, previous, random, ct)
+            slots = await FillAsync(
+                library, viewers, candidates, state.Mode, style, locks, previous, random, tried, ct)
                 .ConfigureAwait(false);
         }
 
         if (slots.Count == 0 && state.Mode == CoverMode.Art)
         {
-            slots = await FillAsync(library, viewers, candidates, CoverMode.Scenes, style, locks, previous, random, ct)
+            slots = await FillAsync(
+                library, viewers, candidates, CoverMode.Scenes, style, locks, previous, random, tried, ct)
                 .ConfigureAwait(false);
+        }
+
+        if (slots.Count == 0 && tried.Count > 0)
+        {
+            // Titles were there and none gave a slot: the name-only cover then hides a failure (all files gone, or
+            // ffmpeg unable to read any clip), so it is said where an admin looks.
+            _log.LogWarning(
+                "Library Cover Maker: none of the {Count} titles tried for library {Library} gave a picture or a "
+                + "clip, so it gets the name-only cover",
+                tried.Count,
+                library.Name);
         }
 
         // With fewer slots than planned each lasts longer. A picture just zooms for longer; a clip is chosen again at
@@ -419,6 +436,7 @@ public sealed class CoverBuilder
         List<CoverSlot> locks,
         IReadOnlyCollection<Guid> previous,
         Random random,
+        ISet<Guid> tried,
         CancellationToken ct)
     {
         var lockedIds = locks.Select(slot => slot.ItemId!.Value).ToList();
@@ -437,6 +455,7 @@ public sealed class CoverBuilder
             var locked = locks.FirstOrDefault(slot => slot.ItemId == title);
             for (var attempt = 1; ; attempt++)
             {
+                tried.Add(title);
                 var choice = await TrySlotAsync(library, viewers, title, mode, locked, seconds, random, ct)
                     .ConfigureAwait(false);
                 if (choice is not null)
@@ -862,8 +881,6 @@ internal sealed class JellyfinCoverSource(
             allowed.Count,
             viewers.Count);
 
-        // A series is taken to have a video: loading every episode of a large library to check is too costly, and a
-        // series with no episode on disk just gives no slot and is replaced.
         return allowed
             .Select(item => new TitleCandidate(
                 item.Id,
@@ -871,9 +888,18 @@ internal sealed class JellyfinCoverSource(
                 item.CommunityRating,
                 item.DateCreated,
                 item.GetImages(ImageType.Backdrop).Any(image => image.IsLocalFile),
-                item is Series || (item is Video video && HasFile(video))))
+                CanGiveScenes(item)))
             .ToList();
     }
+
+    /// <summary>
+    /// Whether a title counts as having a video for scenes: a video file of a known length. One without a runtime
+    /// (live TV, a recording still being written, a stream saved through a pipe) never gives a clip, so drawing it
+    /// would only cost its slot a try. A series is taken to have one: loading every episode of a large library to
+    /// check is too costly, and a series with no such episode just gives no slot and is replaced.
+    /// </summary>
+    internal static bool CanGiveScenes(BaseItem item) =>
+        item is Series || (item is Video video && HasFile(video) && HasLength(video));
 
     public TitleAccess Access(LibraryInfo info, Guid itemId, IReadOnlyList<User> viewers) =>
         AccessOf(library, audience, info.Id, itemId, viewers);
@@ -994,6 +1020,9 @@ internal sealed class JellyfinCoverSource(
 
     private static bool IsOnDisk(Video video) => HasFile(video) && File.Exists(video.Path);
 
+    // The scene finder needs the length to place a clip; without it a video gives none.
+    private static bool HasLength(Video video) => video.RunTimeTicks is > 0;
+
     // What Jellyfin's probe says of the video stream; nothing without the media source manager (the tests).
     private static MediaStream? Probe(Video video) =>
         BaseItem.MediaSourceManager is null ? null : video.GetDefaultVideoStream();
@@ -1059,8 +1088,9 @@ internal sealed class JellyfinCoverSource(
     }
 
     /// <summary>
-    /// The episode a series' scene comes from: the first on disk that every one of <paramref name="viewers"/> may see
-    /// (<see cref="FirstEpisode"/>). The build and the admin API's slot checks and frame previews all ask this.
+    /// The episode a series' scene comes from: the first on disk, of a known length, that every one of
+    /// <paramref name="viewers"/> may see (<see cref="FirstEpisode"/>). The build and the admin API's slot checks and
+    /// frame previews all ask this.
     /// </summary>
     internal static Video? EpisodeFor(
         ILibraryManager library,
@@ -1075,7 +1105,9 @@ internal sealed class JellyfinCoverSource(
             IsVirtualItem = false,
             IncludeItemTypes = [BaseItemKind.Episode],
         }).OfType<Video>();
-        return FirstEpisode(episodes, episode => IsOnDisk(episode) && audience.AllowedForAll(episode, viewers));
+        return FirstEpisode(
+            episodes,
+            episode => IsOnDisk(episode) && HasLength(episode) && audience.AllowedForAll(episode, viewers));
     }
 
     private Video? EpisodeOf(Series series, IReadOnlyList<User> viewers) =>

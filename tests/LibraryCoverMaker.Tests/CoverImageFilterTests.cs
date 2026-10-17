@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.LibraryCoverMaker;
-using Jellyfin.Plugin.LibraryCoverMaker.Storage;
 using Jellyfin.Plugin.LibraryCoverMaker.Web;
-using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
@@ -20,7 +20,7 @@ using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Xunit;
 
@@ -29,8 +29,8 @@ namespace LibraryCoverMaker.Tests;
 /// <summary>
 /// The MVC filter that answers Jellyfin's item image action itself for a library's animated Primary, so Jellyfin's
 /// image processor never tries to resize it. Each request runs through the filter with the arguments Jellyfin's model
-/// binding would give the action, a real store and a stub library manager; the file result it sets is then executed
-/// by ASP.NET's own executor, which is what answers 304, HEAD and Range. Whether MVC really runs the filter in front
+/// binding would give the action and a stub library manager; the file result it sets is then executed by ASP.NET's
+/// own executor, which is what answers 304, HEAD and Range. Whether MVC really runs the filter in front
 /// of Jellyfin's action, behind all of Jellyfin's middleware, is checked on a server.
 /// </summary>
 public sealed class CoverImageFilterTests : IDisposable
@@ -39,8 +39,10 @@ public sealed class CoverImageFilterTests : IDisposable
     private static readonly Guid Film = Guid.Parse("1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d");
     private static readonly DateTime Written = new(2026, 10, 16, 12, 0, 0, DateTimeKind.Utc);
 
+    // How long the filter waits for a Primary that Jellyfin is writing; short, so that giving up is quick to test.
+    private static readonly TimeSpan BusyWait = TimeSpan.FromMilliseconds(600);
+
     private readonly string _root = Directory.CreateTempSubdirectory("cover-filter-tests-").FullName;
-    private readonly CoverStore _store;
     private readonly Dictionary<Guid, BaseItem> _items = new();
     private readonly CoverImageFilter _filter;
     private readonly ServiceProvider _services = new ServiceCollection().AddLogging().AddMvcCore().Services
@@ -48,11 +50,13 @@ public sealed class CoverImageFilterTests : IDisposable
 
     private int _passedThrough;
     private bool _lookupFails;
+    private bool _replacing;
+    private readonly HashSet<Guid> _visible = new();
+    private readonly CountingLogger _log = new();
 
     public CoverImageFilterTests()
     {
-        _store = new CoverStore(new Paths(_root), NullLogger<CoverStore>.Instance);
-        _filter = new CoverImageFilter(Libraries(), _store, NullLogger<CoverImageFilter>.Instance);
+        _filter = new CoverImageFilter(Libraries(), _log, BusyWait, _ => _replacing);
     }
 
     public void Dispose()
@@ -67,7 +71,7 @@ public sealed class CoverImageFilterTests : IDisposable
     public async Task Animated_library_primary_is_served_by_the_plugin()
     {
         var bytes = AnimatedWebp(1);
-        var path = AppliedCover(bytes);
+        var path = PrimaryCover(bytes);
 
         var response = await Send(new Call());
 
@@ -88,7 +92,7 @@ public sealed class CoverImageFilterTests : IDisposable
     public async Task Every_route_of_the_item_image_action_is_served(string action, int? index, string? tag)
     {
         var bytes = AnimatedWebp(2);
-        AppliedCover(bytes);
+        PrimaryCover(bytes);
 
         var response = await Send(new Call { Action = action, Index = index, Tag = tag });
 
@@ -99,7 +103,7 @@ public sealed class CoverImageFilterTests : IDisposable
     [Fact]
     public async Task Tagged_request_is_immutable_with_the_tag_as_etag()
     {
-        AppliedCover(AnimatedWebp(3));
+        PrimaryCover(AnimatedWebp(3));
 
         var response = await Send(new Call { Tag = "abc123" });
 
@@ -116,7 +120,7 @@ public sealed class CoverImageFilterTests : IDisposable
     [InlineData("a b")]
     public async Task Tag_that_is_not_printable_ascii_gets_the_file_etag(string tag)
     {
-        AppliedCover(AnimatedWebp(4));
+        PrimaryCover(AnimatedWebp(4));
         var untagged = await Send(new Call());
 
         var response = await Send(new Call { Tag = tag });
@@ -129,7 +133,7 @@ public sealed class CoverImageFilterTests : IDisposable
     [Fact]
     public async Task Untagged_request_matches_jellyfin_cache_header()
     {
-        AppliedCover(AnimatedWebp(5));
+        PrimaryCover(AnimatedWebp(5));
 
         var response = await Send(new Call());
 
@@ -140,7 +144,7 @@ public sealed class CoverImageFilterTests : IDisposable
     public async Task Head_request_has_headers_and_no_body()
     {
         var bytes = AnimatedWebp(6);
-        AppliedCover(bytes);
+        PrimaryCover(bytes);
 
         var response = await Send(new Call { Method = "HEAD", Tag = "x" });
 
@@ -155,7 +159,7 @@ public sealed class CoverImageFilterTests : IDisposable
     [Fact]
     public async Task Conditional_request_returns_304()
     {
-        var path = AppliedCover(AnimatedWebp(7));
+        var path = PrimaryCover(AnimatedWebp(7));
         var untagged = (await Send(new Call())).Headers.ETag.ToString();
 
         var byTag = await Send(new Call { Tag = "t", IfNoneMatch = "\"t\"" });
@@ -178,7 +182,7 @@ public sealed class CoverImageFilterTests : IDisposable
     public async Task Range_request_gets_part_of_the_file()
     {
         var bytes = AnimatedWebp(8);
-        AppliedCover(bytes);
+        PrimaryCover(bytes);
 
         var response = await Send(new Call { Range = "bytes=0-9" });
 
@@ -189,7 +193,7 @@ public sealed class CoverImageFilterTests : IDisposable
     [Fact]
     public async Task File_replaced_on_disk_is_reread()
     {
-        var path = AppliedCover(AnimatedWebp(9));
+        var path = PrimaryCover(AnimatedWebp(9));
         var first = await Send(new Call());
 
         var replaced = AnimatedWebp(10, extra: 40);
@@ -209,37 +213,129 @@ public sealed class CoverImageFilterTests : IDisposable
     }
 
     [Fact]
-    public async Task State_saved_after_the_first_request_is_seen()
-    {
-        // The apply race: Jellyfin's item already has the new image while the state that names it is not saved yet.
-        var path = WriteCover("folder.webp", AnimatedWebp(11));
-        _items[Library] = LibraryWith(path, File.GetLastWriteTimeUtc(path));
-
-        await Send(new Call());
-        Assert.Equal(1, _passedThrough);
-
-        Record(path);
-        var response = await Send(new Call());
-
-        Assert.Equal(1, _passedThrough);
-        Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
-    }
-
-    [Fact]
     public async Task New_primary_is_served_at_once_after_an_apply()
     {
-        var old = AppliedCover(AnimatedWebp(12));
+        var old = PrimaryCover(AnimatedWebp(12));
         await Send(new Call());
 
-        // A new cover at another path, recorded by the apply: the old file is never served again.
+        // A new cover at another path, before the plugin saved any state that names it (the apply race): the item
+        // says what the library shows, and the old file is never served again.
         var replacement = AnimatedWebp(13, extra: 7);
         var path = WriteCover("folder2.webp", replacement, Written.AddHours(1));
         _items[Library] = LibraryWith(path, File.GetLastWriteTimeUtc(path));
-        Record(path);
         var response = await Send(new Call());
 
+        Assert.Equal(0, _passedThrough);
         Assert.True(File.Exists(old));
         Assert.Equal(replacement, Body(response));
+    }
+
+    [Fact]
+    public async Task Animated_primary_from_an_upload_is_served_too()
+    {
+        // Whatever wrote it (Edit images, or a file put in the library folder): an animated WebP is never Jellyfin's
+        // to resize. The item's image time need not match the file's either.
+        var bytes = AnimatedWebp(11);
+        var path = WriteCover("folder.webp", bytes);
+        _items[Library] = LibraryWith(path, Written.AddMinutes(-30));
+
+        var response = await Send(new Call());
+
+        Assert.Equal(0, _passedThrough);
+        Assert.Equal(bytes, Body(response));
+    }
+
+    [Fact]
+    public async Task Primary_being_written_is_served_once_jellyfin_is_done()
+    {
+        var path = PrimaryCover(AnimatedWebp(20));
+        await Send(new Call());
+
+        // Jellyfin's image saver writes the file in place with FileShare.None, which on Linux is an exclusive lock.
+        var replacement = AnimatedWebp(21, extra: 64);
+        Task<HttpResponse> request;
+        using (var writer = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            writer.Write(replacement, 0, 10);
+            request = Send(new Call());
+            await Task.Delay(150);
+            Assert.False(request.IsCompleted);
+            writer.Write(replacement, 10, replacement.Length - 10);
+        }
+
+        var response = await request;
+
+        Assert.Equal(0, _passedThrough);
+        Assert.Equal(replacement, Body(response));
+        Assert.Equal(replacement.Length, response.ContentLength);
+    }
+
+    [Fact]
+    public async Task Primary_moved_aside_by_the_applier_is_waited_for()
+    {
+        // The plugin renamed its cover out of the way of SaveImage, and Jellyfin has not created the new file yet.
+        // Once the file is there the filter still waits: .NET creates a file before it takes the writer's lock, so
+        // a file that exists may not be written yet. Only the end of the replacement says it is.
+        var path = PrimaryCover(AnimatedWebp(24));
+        File.Delete(path);
+        _replacing = true;
+
+        var request = Send(new Call());
+        await Task.Delay(150);
+        Assert.False(request.IsCompleted);
+        var replacement = AnimatedWebp(25, extra: 30);
+        File.WriteAllBytes(path, replacement);
+        await Task.Delay(150);
+        Assert.False(request.IsCompleted);
+        _replacing = false;
+        var response = await request;
+
+        Assert.Equal(0, _passedThrough);
+        Assert.Equal(replacement, Body(response));
+    }
+
+    [Fact]
+    public async Task Primary_written_for_too_long_is_left_to_jellyfin_and_said_once()
+    {
+        var path = PrimaryCover(AnimatedWebp(22));
+
+        using (new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None))
+        {
+            await Send(new Call());
+
+            // The same file, unchanged: no second wait and no second warning.
+            var again = Stopwatch.StartNew();
+            await Send(new Call());
+            Assert.True(again.Elapsed < BusyWait / 2, $"the second request waited {again.Elapsed}");
+        }
+
+        Assert.Equal(2, _passedThrough);
+        Assert.Equal(1, _log.Warnings);
+
+        // Once the file changes, it is looked at again.
+        File.WriteAllBytes(path, AnimatedWebp(23, extra: 3));
+        File.SetLastWriteTimeUtc(path, Written.AddMinutes(1));
+        await Send(new Call());
+        Assert.Equal(2, _passedThrough);
+    }
+
+    [Fact]
+    public async Task Served_file_cannot_change_under_the_answer()
+    {
+        // The file the filter decided on is the one it sends: its handle is open until the answer is written, so a
+        // new file moved over the path afterwards is not mixed into it.
+        var bytes = AnimatedWebp(23);
+        var path = PrimaryCover(bytes);
+        var http = NewRequest(new Call());
+        var executing = Executing(http, new Call());
+        await _filter.OnActionExecutionAsync(executing, PassThrough(executing));
+
+        var moved = Path.Combine(_root, "jellyfin", "new.webp");
+        File.WriteAllBytes(moved, StillWebp());
+        File.Move(moved, path, overwrite: true);
+        await executing.Result!.ExecuteResultAsync(executing);
+
+        Assert.Equal(bytes, Body(http.Response));
     }
 
     // ---- Passed through ----------------------------------------------------------------------------------------
@@ -247,10 +343,10 @@ public sealed class CoverImageFilterTests : IDisposable
     [Fact]
     public async Task Still_primary_passes_through()
     {
-        AppliedCover(StillWebp());
+        PrimaryCover(StillWebp());
         await Send(new Call());
 
-        AppliedCover([0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, (byte)'J', (byte)'F', (byte)'I', (byte)'F'], "folder.jpg");
+        PrimaryCover([0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, (byte)'J', (byte)'F', (byte)'I', (byte)'F'], "folder.jpg");
         await Send(new Call());
 
         Assert.Equal(2, _passedThrough);
@@ -266,12 +362,6 @@ public sealed class CoverImageFilterTests : IDisposable
             ImageInfos = [new ItemImageInfo { Type = ImageType.Primary, Path = path, DateModified = Written }],
         };
 
-        // Even a state that names the file does not make a film a library.
-        _store.Update(Film, state =>
-        {
-            state.AppliedPrimaryPath = path;
-            state.AppliedPrimaryModified = Written;
-        });
         await Send(new Call { ItemId = Film });
         await Send(new Call { ItemId = Guid.NewGuid() });
 
@@ -284,7 +374,7 @@ public sealed class CoverImageFilterTests : IDisposable
     [InlineData(ImageType.Primary, 1)]
     public async Task Other_image_types_and_indexes_pass_through(ImageType type, int? index)
     {
-        AppliedCover(AnimatedWebp(15));
+        PrimaryCover(AnimatedWebp(15));
 
         await Send(new Call { Type = type, Index = index });
         await Send(new Call { Type = type, Index = index ?? 0, Action = "GetItemImageByIndex" });
@@ -299,7 +389,7 @@ public sealed class CoverImageFilterTests : IDisposable
     [InlineData("Jellyfin.Plugin.Other.ImageController", "GetItemImage")]
     public async Task Other_actions_pass_through(string controller, string action)
     {
-        AppliedCover(AnimatedWebp(16));
+        PrimaryCover(AnimatedWebp(16));
 
         await Send(new Call { Controller = controller, Action = action });
 
@@ -307,39 +397,37 @@ public sealed class CoverImageFilterTests : IDisposable
     }
 
     [Fact]
-    public async Task Library_whose_state_names_another_image_passes_through()
+    public async Task Signed_in_user_gets_only_the_libraries_they_may_see()
     {
-        // An animated image the plugin did not apply, or one changed since: the state says otherwise.
-        var path = WriteCover("folder.webp", AnimatedWebp(17));
-        _items[Library] = LibraryWith(path, File.GetLastWriteTimeUtc(path));
-        await Send(new Call()); // no state at all
+        // Jellyfin's action answers 404 for a library the user may not see; the filter must not serve it instead.
+        var bytes = AnimatedWebp(26);
+        PrimaryCover(bytes);
+        var allowed = Guid.NewGuid();
+        _visible.Add(allowed);
 
-        _store.Update(Library, state =>
-        {
-            state.AppliedPrimaryPath = path + ".old";
-            state.AppliedPrimaryModified = Written;
-        });
-        await Send(new Call());
+        var seen = await Send(new Call { User = allowed.ToString("N") });
+        await Send(new Call { User = Guid.NewGuid().ToString("N") });
+        await Send(new Call { User = "not a user id" });
+        await Send(new Call { User = string.Empty }); // authenticated, without the claim
+        var anonymous = await Send(new Call());
 
-        _store.Update(Library, state =>
-        {
-            state.AppliedPrimaryPath = path;
-            state.AppliedPrimaryModified = Written.AddMinutes(-30);
-        });
-        await Send(new Call());
+        // An API key authenticates with an empty user id, and Jellyfin answers it for any library, as anonymously.
+        var apiKey = await Send(new Call { User = Guid.Empty.ToString() });
 
+        Assert.Equal(bytes, Body(seen));
         Assert.Equal(3, _passedThrough);
+        Assert.Equal(bytes, Body(anonymous));
+        Assert.Equal(bytes, Body(apiKey));
     }
 
     [Fact]
     public async Task Missing_file_and_remote_image_pass_through()
     {
-        var path = AppliedCover(AnimatedWebp(18));
+        var path = PrimaryCover(AnimatedWebp(18));
         File.Delete(path);
         await Send(new Call());
 
         _items[Library] = LibraryWith("https://example.invalid/cover.webp", Written);
-        Record("https://example.invalid/cover.webp");
         await Send(new Call());
 
         Assert.Equal(2, _passedThrough);
@@ -348,7 +436,7 @@ public sealed class CoverImageFilterTests : IDisposable
     [Fact]
     public async Task Failure_in_the_plugin_path_leaves_the_request_to_jellyfin()
     {
-        AppliedCover(AnimatedWebp(19));
+        PrimaryCover(AnimatedWebp(19));
         _lookupFails = true;
 
         await Send(new Call());
@@ -378,14 +466,6 @@ public sealed class CoverImageFilterTests : IDisposable
         Assert.Null(CoverImageFilter.QuotedTag("a\"b"));
         Assert.Null(CoverImageFilter.QuotedTag("\u00e9"));
         Assert.Null(CoverImageFilter.QuotedTag("\u007f"));
-    }
-
-    [Fact]
-    public void State_path_is_where_the_store_writes_the_state()
-    {
-        _store.Update(Library, state => state.Pinned = true);
-
-        Assert.True(File.Exists(_store.StatePath(Library)));
     }
 
     [Fact]
@@ -435,12 +515,11 @@ public sealed class CoverImageFilterTests : IDisposable
         return bytes.ToArray();
     }
 
-    // Writes a cover file, makes it the library's Primary in Jellyfin's item, and records it as the plugin's apply.
-    private string AppliedCover(byte[] bytes, string name = "folder.webp")
+    // Writes a cover file and makes it the library's Primary in Jellyfin's item.
+    private string PrimaryCover(byte[] bytes, string name = "folder.webp")
     {
         var path = WriteCover(name, bytes);
         _items[Library] = LibraryWith(path, File.GetLastWriteTimeUtc(path));
-        Record(path);
         return path;
     }
 
@@ -453,12 +532,6 @@ public sealed class CoverImageFilterTests : IDisposable
         return path;
     }
 
-    private void Record(string path) => _store.Update(Library, state =>
-    {
-        state.AppliedPrimaryPath = path;
-        state.AppliedPrimaryModified = _items[Library].GetImageInfo(ImageType.Primary, 0)!.DateModified;
-    });
-
     private static CollectionFolder LibraryWith(string path, DateTime modified) => new()
     {
         Id = Library,
@@ -469,7 +542,28 @@ public sealed class CoverImageFilterTests : IDisposable
     // action itself is the counter: it runs only when the filter calls next.
     private async Task<HttpResponse> Send(Call call)
     {
+        var http = NewRequest(call);
+        var executing = Executing(http, call);
+        await _filter.OnActionExecutionAsync(executing, PassThrough(executing));
+
+        if (executing.Result is { } result)
+        {
+            Assert.IsType<FileStreamResult>(result);
+            await result.ExecuteResultAsync(executing);
+        }
+
+        return http.Response;
+    }
+
+    private DefaultHttpContext NewRequest(Call call)
+    {
         var http = new DefaultHttpContext { RequestServices = _services };
+        if (call.User is { } user)
+        {
+            Claim[] claims = user.Length == 0 ? [] : [new Claim("Jellyfin-UserId", user)];
+            http.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "CustomAuth"));
+        }
+
         http.Request.Method = call.Method;
         http.Response.Body = new MemoryStream();
         foreach (var (name, value) in call.Headers())
@@ -477,6 +571,12 @@ public sealed class CoverImageFilterTests : IDisposable
             http.Request.Headers[name] = value;
         }
 
+        return http;
+    }
+
+    // The context MVC gives an action filter, with the arguments model binding would give the action.
+    private static ActionExecutingContext Executing(HttpContext http, Call call)
+    {
         var descriptor = new ControllerActionDescriptor
         {
             ActionName = call.Action,
@@ -499,37 +599,35 @@ public sealed class CoverImageFilterTests : IDisposable
             arguments["tag"] = tag;
         }
 
-        var filters = new List<IFilterMetadata>();
-        var controller = new object();
-        var executing = new ActionExecutingContext(action, filters, arguments, controller);
-        await _filter.OnActionExecutionAsync(executing, () =>
-        {
-            _passedThrough++;
-            return Task.FromResult(new ActionExecutedContext(action, filters, controller));
-        });
-
-        if (executing.Result is { } result)
-        {
-            Assert.IsType<PhysicalFileResult>(result);
-            await result.ExecuteResultAsync(action);
-        }
-
-        return http.Response;
+        return new ActionExecutingContext(action, [], arguments, new object());
     }
+
+    // Jellyfin's action, as the filter's next: it only counts that it ran.
+    private ActionExecutionDelegate PassThrough(ActionExecutingContext executing) => () =>
+    {
+        _passedThrough++;
+        return Task.FromResult(new ActionExecutedContext(executing, executing.Filters, executing.Controller));
+    };
 
     private static byte[] Body(HttpResponse response) => ((MemoryStream)response.Body).ToArray();
 
     // A library manager that knows only the test's items, or that fails when the test says so.
+    // With a user (GetItemById<T>(id, userId)), only the items that user may see, as Jellyfin's lookup gives them.
     private ILibraryManager Libraries() => Proxy<ILibraryManager>((call, args) =>
     {
-        if (call.Name != nameof(ILibraryManager.GetItemById) || call.IsGenericMethod)
+        if (call.Name != nameof(ILibraryManager.GetItemById)
+            || (call.IsGenericMethod && (args!.Length != 2 || args[1] is not Guid)))
         {
             return null;
         }
 
-        return _lookupFails
-            ? throw new InvalidOperationException("The library is not loaded yet.")
-            : _items.GetValueOrDefault((Guid)args![0]!);
+        if (_lookupFails)
+        {
+            throw new InvalidOperationException("The library is not loaded yet.");
+        }
+
+        var item = _items.GetValueOrDefault((Guid)args![0]!);
+        return call.IsGenericMethod && !_visible.Contains((Guid)args[1]!) ? null : item;
     });
 
     // A stand-in for an interface: each call gets what answer gives, or the default of its return type.
@@ -564,6 +662,9 @@ public sealed class CoverImageFilterTests : IDisposable
 
         public string? Range { get; init; }
 
+        /// <summary>The user id claim of an authenticated request: null when anonymous, empty for no claim.</summary>
+        public string? User { get; init; }
+
         public IEnumerable<(string Name, string Value)> Headers()
         {
             if (IfNoneMatch is not null)
@@ -579,6 +680,30 @@ public sealed class CoverImageFilterTests : IDisposable
             if (Range is not null)
             {
                 yield return ("Range", Range);
+            }
+        }
+    }
+
+    // Counts what is logged at warning level or above.
+    private sealed class CountingLogger : ILogger<CoverImageFilter>
+    {
+        public int Warnings { get; private set; }
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel >= LogLevel.Warning)
+            {
+                Warnings++;
             }
         }
     }
@@ -605,47 +730,6 @@ public sealed class CoverImageFilterTests : IDisposable
             return type == typeof(void) || !type.IsValueType || type.ContainsGenericParameters
                 ? null
                 : Activator.CreateInstance(type);
-        }
-    }
-
-    private sealed class Paths(string root) : IApplicationPaths
-    {
-        public string ProgramDataPath => root;
-
-        public string WebPath => Path.Combine(root, "web");
-
-        public string ProgramSystemPath => Path.Combine(root, "system");
-
-        public string DataPath => Path.Combine(root, "data");
-
-        public string ImageCachePath => Path.Combine(root, "cache", "images");
-
-        public string PluginsPath => Path.Combine(root, "plugins");
-
-        public string PluginConfigurationsPath => Path.Combine(root, "plugins", "configurations");
-
-        public string LogDirectoryPath => Path.Combine(root, "log");
-
-        public string ConfigurationDirectoryPath => Path.Combine(root, "config");
-
-        public string SystemConfigurationFilePath => Path.Combine(root, "config", "system.xml");
-
-        public string CachePath => Path.Combine(root, "cache");
-
-        public string TempDirectory => Path.Combine(root, "temp");
-
-        public string VirtualDataPath => Path.Combine(root, "data");
-
-        public string TrickplayPath => Path.Combine(root, "data", "trickplay");
-
-        public string BackupPath => Path.Combine(root, "backups");
-
-        public void MakeSanityCheckOrThrow()
-        {
-        }
-
-        public void CreateAndCheckMarker(string path, string markerName, bool recursive = false)
-        {
         }
     }
 }

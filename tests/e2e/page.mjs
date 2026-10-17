@@ -327,10 +327,33 @@ export async function pageChecks(ctx) {
 
     await step('Generate_all_now', async () => {
         await clearStatus();
+        const names = Object.keys(libraryIds);
+        const before = {};
+        for (const name of names) before[name] = await state(name);
+        // What the button asked for, and then the libraries themselves through the API: the status line may pass
+        // before a check sees it.
+        const answer = page.waitForResponse((res) => /\/GenerateAll$/.test(res.url()), { timeout: 20_000 });
         await page.locator('#lcm-generate-all').click();
-        await waitStatus(/Building \d+ cover/, 'lcm-status', 20_000);
-        await page.waitForFunction(() => !document.querySelector('.lcm-building'), null, { timeout: 300_000 });
-        return (await page.locator('#lcm-status').textContent()).trim();
+        const res = await answer;
+        expect(res.status() === 202, `Generate all answered ${res.status()}`);
+        const { Queued: queued } = await res.json();
+        expect(queued > 0, 'Generate all queued no library');
+        await waitFor(
+            `${queued} new covers`,
+            async () => {
+                let built = 0;
+                for (const name of names) {
+                    const now = await state(name);
+                    if (N(now.CurrentCoverId) !== N(before[name].CurrentCoverId)) built++;
+                }
+                expect(built >= queued, `${built} of ${queued} built`);
+                return true;
+            },
+            { timeout: 300_000, interval: 1_000 }
+        );
+        await page.waitForFunction(() => !document.querySelector('.lcm-building'), null, { timeout: 60_000 });
+        const status = (await page.locator('#lcm-status').textContent()).trim();
+        return `${queued} libraries rebuilt; the page says "${status}"`;
     });
 
     await step('Page_has_no_errors', async () => {

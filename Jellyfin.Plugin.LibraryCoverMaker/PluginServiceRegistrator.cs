@@ -87,7 +87,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             () => sessions.Sessions.Any(session => session.NowPlayingItem is not null && !session.PlayState.IsPaused),
             libraryId => LibraryExists(libraries, libraryId),
             provider.GetRequiredService<CoverStore>(),
-            provider.GetRequiredService<ILogger<RenderQueue>>());
+            provider.GetRequiredService<ILogger<RenderQueue>>(),
+            startUp: provider.GetRequiredService<CoverApplier>().RecoverInterruptedSave);
     }
 
     // The queue forgets a library's covers and history when this says no, so a transient answer while Jellyfin is

@@ -4,8 +4,9 @@
 //   node e2e.mjs [names...]    run the checks whose names contain one of the words (all of them with none)
 //
 // Every check name starts with its group (covers, clips, hdr, trickplay, audience, images, api, page, filter,
-// log), so `node e2e.mjs audience images` runs two groups. A word that matches no check name is a mistake, so it
-// fails the run, naming the word and listing the checks.
+// restart, log), so `node e2e.mjs audience images` runs two groups. The restart group is slow: each of its checks
+// restarts Jellyfin (the last two filter checks do too, with another network.xml). A word that matches no check
+// name is a mistake, so it fails the run, naming the word and listing the checks.
 //
 // JF is the server's address (default http://127.0.0.1:18096), CONTAINER the name of its Docker container (default
 // lcm-e2e) and WORK the folder run.sh mounted into it (default tests/e2e/.work): the checks read the plugin's state
@@ -36,6 +37,23 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const JF = process.env.JF ?? 'http://127.0.0.1:18096';
 const CONTAINER = process.env.CONTAINER ?? 'lcm-e2e';
 const WORK = path.resolve(process.env.WORK ?? path.join(HERE, '.work'));
+
+// The checks stop, start and exec into CONTAINER: only a container that run.sh made for these tests (its label) is
+// ever touched, also when this script is run by hand against a kept server.
+const OWN_LABEL = 'org.library-cover-maker.e2e';
+{
+    const labels = spawnSync(
+        'docker',
+        ['container', 'inspect', '-f', `{{index .Config.Labels "${OWN_LABEL}"}}`, CONTAINER],
+        {
+            encoding: 'utf8'
+        }
+    );
+    if (labels.status !== 0 || labels.stdout.trim() !== '1') {
+        console.error(`e2e.mjs: ${CONTAINER} has no ${OWN_LABEL}=1 label, so it is not a server of these tests`);
+        process.exit(2);
+    }
+}
 
 // The server is a throwaway one that listens on 127.0.0.1 only, so the accounts are test values.
 const ADMIN = { Name: 'admin', Password: 'admin' };
@@ -285,6 +303,9 @@ function pluginErrorEntries(log) {
 const decodeErrors = (log) =>
     log.split('\n').filter((line) => line.includes('Cannot decode images with multiple frames')).length;
 
+/** How many times Jellyfin's image saver could not write an image where it wanted and saved it elsewhere. */
+const savedElsewhere = (log) => log.split('\n').filter((line) => line.includes('Will retry saving to')).length;
+
 /** Where a path inside the container is on this machine, and back: /config and /media are folders of WORK. */
 function hostPath(containerPath) {
     for (const mount of ['/config/', '/media/']) {
@@ -396,6 +417,9 @@ function webpInfo(bytes) {
 /** Whether bytes are an animated WebP. */
 const isAnimated = (bytes) => bytes.toString('latin1', 0, 4) === 'RIFF' && webpInfo(bytes).animated;
 
+/** Whether the bytes are a whole RIFF file: as long as its header says (the RIFF size plus its 8 bytes). */
+const isWhole = (bytes) => bytes.length >= 12 && bytes.length === bytes.readUInt32LE(4) + 8;
+
 /** A cover's pictures, one per tick of its timeline (12 a second). libwebp folds a frame into the one before it
  *  when it sees no change and gives that one twice the duration, so such a picture appears twice. Raw RGB. */
 function decodeCover(bytes) {
@@ -497,6 +521,7 @@ async function newCover(name, before, { timeout = 120_000 } = {}) {
 /** Changes a library (PUT) and waits for the one new cover that follows: the build that a change of slots starts by
  *  itself, or a Generate when the slots stay as they are. Never both, so that no build is left running behind. */
 async function rebuild(name, update = {}) {
+    const started = Date.now();
     const before = await coverState(name);
     expect(!before.Pinned, `${name} is pinned, so it would not be built`);
     const slotsChange = update.Slots && slotKey(update.Slots) !== slotKey(before.Slots);
@@ -508,7 +533,25 @@ async function rebuild(name, update = {}) {
         const res = await api('POST', covers(`/Libraries/${libraryIds[name]}/Generate`));
         expect(res.status === 202, `Generate on ${name} answered ${res.status} ${res.text.slice(0, 300)}`);
     }
-    return newCover(name, before);
+    const state = await newCover(name, before);
+    slowestBuild = Math.max(slowestBuild, Date.now() - started);
+    return state;
+}
+
+/** The longest a build has taken in this run, in ms (rebuild measures it). */
+let slowestBuild = 0;
+
+/** For a check that something does not happen: looks every half second for as long as twice the slowest build of
+ *  the run plus 2 s (at least 3 s), and fails as soon as `changed` names a change. Gives the time it watched. */
+async function staysSame(what, changed) {
+    const watched = Math.max(3_000, 2 * slowestBuild + 2_000);
+    const end = Date.now() + watched;
+    for (;;) {
+        const change = await changed();
+        expect(!change, `${what}: ${change}`);
+        if (Date.now() > end) return watched;
+        await sleep(500);
+    }
 }
 
 /** The five slots, the first ones locked as given ({ ItemId, MomentSeconds, BackdropIndex }), the rest free. */
@@ -1061,8 +1104,7 @@ await check('covers: Unreadable_title_is_replaced_by_another', async () => {
     const aside = path.join(WORK, 'letterbox-aside.mkv');
     // The file goes away after the scan: Jellyfin still lists the film (no real time monitor), the plugin cannot
     // read it. One slot, locked to it, so that it is tried first; the one other title of the library must take its
-    // place. (In Movies a second draw could land on Live, which has no length and gives no clip either, and two
-    // tries are all a slot gets.) The file comes back at the end.
+    // place, which in Movies would be any of a dozen. The file comes back at the end.
     fs.renameSync(file, aside);
     try {
         const state = await rebuild('Mixed', {
@@ -1094,7 +1136,7 @@ const SHARP_BAND = [41, 41, 599, 109];
 const SHARP_ENOUGH = 40;
 
 /** The ticks of Dark Start's slot (the first) of the Movies cover, without the first and last tick of the slot. A
- *  slot whose two titles both fail is dropped (Live gives no clip), so the slots are counted from the record. */
+ *  slot whose two titles both fail is dropped, so the slots are counted from the record. */
 async function darkStartTicks(darkStart) {
     const { record, ticks } = await currentCover('Movies');
     expect(N(record.TitleIds[0]) === N(darkStart.Id), 'Dark Start is not in the first slot');
@@ -1358,15 +1400,19 @@ await check('audience: Granting_access_rebuilds_that_library_only', async () => 
     const movies = await rOnMovies('Film 6');
     const before = {};
     for (const name of Object.keys(LIBRARIES)) before[name] = N((await coverState(name)).CurrentCoverId);
+    const granted = Date.now();
     await kidPg([libraryIds.Home, libraryIds.Movies]);
     const after = await newCover('Movies', movies, { timeout: 60_000 });
+    slowestBuild = Math.max(slowestBuild, Date.now() - granted);
     const wrong = await notPg('Movies', currentRecord(after));
     expect(!wrong.length, `the new cover still shows ${wrong.join(', ')}`);
-    // As long as a rebuild takes here, for a wrong one of another library to show.
-    await sleep(5_000);
-    for (const name of Object.keys(LIBRARIES).filter((n) => n !== 'Movies')) {
-        expect(N((await coverState(name)).CurrentCoverId) === before[name], `${name} was rebuilt too`);
-    }
+    // Long enough for a wrong rebuild of another library to show, measured by the builds of this run.
+    await staysSame('only Movies is rebuilt', async () => {
+        for (const name of Object.keys(LIBRARIES).filter((n) => n !== 'Movies')) {
+            if (N((await coverState(name)).CurrentCoverId) !== before[name]) return `${name} was rebuilt too`;
+        }
+        return null;
+    });
     await kidPg();
     await resetLibrary('Movies');
     return 'Movies replaced, the five others untouched';
@@ -1412,7 +1458,10 @@ await check('images: Uploaded_cover_is_left_alone', async () => {
     );
     await kidUnlimited();
     await kidPg();
-    await sleep(3_000);
+    await staysSame('the upload stays', async () => {
+        const now = await coverState('Shows');
+        return now.Pinned && N(now.CurrentCoverId) === N(record.Id) ? null : `replaced by ${now.CurrentCoverId}`;
+    });
     const after = await coverState('Shows');
     expect(
         after.Pinned && N(after.CurrentCoverId) === N(record.Id),
@@ -1818,10 +1867,47 @@ await filterCheck('Odd_tags_are_served', async ({ file, id }) => {
     return 'a non-ASCII and a control character tag: 200 with the file ETag';
 });
 
+/** Fails as soon as the log has more decode errors than `before`, looking for 1.5 s: Jellyfin's console log is
+ *  written a moment after its answer. Jellyfin sends the original file even when its processor fails, so the same
+ *  bytes alone do not show that the plugin answered; the missing decode error does. */
+async function expectNoDecodeErrorSince(before, what) {
+    const end = Date.now() + 1_500;
+    for (;;) {
+        const gained = decodeErrors(serverLog()) - before;
+        expect(gained === 0, `${what}: the log gained ${gained} "Cannot decode images with multiple frames" lines`);
+        if (Date.now() > end) return;
+        await sleep(250);
+    }
+}
+
 await filterCheck('Requests_with_a_token_are_served_the_same', async ({ file, id }) => {
+    const before = decodeErrors(serverLog());
     const res = await api('GET', `/Items/${id}/Images/Primary?maxWidth=301`);
     expect(res.status === 200 && sha(res.bytes) === sha(file), `${res.status}, ${res.bytes.length} bytes`);
-    return 'the stored bytes';
+    await expectNoDecodeErrorSince(before, 'the admin token');
+    return 'the stored bytes, no decode error';
+});
+
+// An API key authenticates with an empty user id. Jellyfin's own action answers it for every library (200, its
+// processor's error logged, the original sent), so the plugin answers it as it answers an anonymous request.
+await filterCheck('Requests_with_an_api_key_are_served_the_same', async ({ file, id }) => {
+    const app = `lcm-e2e-${randomUUID().slice(0, 8)}`;
+    await expectStatus(204, 'POST', `/Auth/Keys?app=${app}`);
+    const key = (await ok('/Auth/Keys')).Items.find((item) => item.AppName === app)?.AccessToken;
+    expect(key, `the API key of ${app} is not listed`);
+    try {
+        const before = decodeErrors(serverLog());
+        const res = await call('GET', `/Items/${id}/Images/Primary?maxWidth=302`, { as: key });
+        expect(res.status === 200 && sha(res.bytes) === sha(file), `${res.status}, ${res.bytes.length} bytes`);
+        await expectNoDecodeErrorSince(before, 'the API key');
+        // Jellyfin itself answers the key for an image it resizes: a film's backdrop.
+        const film = (await titlesOf('Movies')).get('Film 1');
+        const backdrop = await call('GET', `/Items/${film.Id}/Images/Backdrop?maxWidth=100`, { as: key });
+        expect(backdrop.status === 200, `a backdrop with the key answered ${backdrop.status}`);
+        return 'the stored bytes, no decode error; Jellyfin answers the key for a backdrop too';
+    } finally {
+        if (key) await expectStatus(204, 'DELETE', `/Auth/Keys/${key}`);
+    }
 });
 
 await filterCheck('Cross_origin_requests_get_the_cors_header', async ({ id }) => {
@@ -1876,59 +1962,102 @@ await filterCheck('Still_format_is_left_to_jellyfin_and_the_animation_comes_back
     return 'still from Jellyfin, then the stored animated bytes again';
 });
 
-// Seen first as one decode error in the log while the page's Generate all ran, then made to happen at will:
-// a client that keeps asking for a library's card while the plugin applies new covers to it.
-const APPLY_RACE =
-    'between Jellyfin writing the new Primary (SaveImage, Covers/CoverApplier.cs) and the store saving the state ' +
-    'that names it, CoverImageFilter.Find (Web/CoverImageFilter.cs) does not know the file and hands the request ' +
-    "to Jellyfin's image processor, which cannot decode it; a read of the file while Jellyfin rewrites it in place " +
-    'also gives 500 (file in use) or a cut answer, and can make Jellyfin save the cover to another path';
+// Seen first as one decode error in the log while the page's Generate all ran, then made to happen at will: a
+// client that keeps asking for a library's card while the plugin applies new covers to it. The requests landed
+// between Jellyfin writing the new Primary and the plugin saving the state that names it, and while Jellyfin held
+// the file to write it; the filter now serves any animated Primary of a library and waits out the write. Jellyfin's
+// image saver also cannot write a file that a request is reading, and then saved the cover to the library's
+// metadata folder instead ("Will retry saving to"): the plugin now moves its own cover aside before each save, so
+// every apply writes a new file (a new inode) that no one reads, and nothing is left beside it.
+const APPLIES = 6;
 
-await filterCheck(
-    'Covers_being_applied_never_reach_the_image_processor',
-    async ({ id }) => {
-        const before = decodeErrors(serverLog());
-        const answers = {};
-        let stop = false;
-        let asked = 0;
-        // One client, one request after the other, as fast as the server answers.
-        const client = (async () => {
-            while (!stop) {
-                let outcome;
-                try {
-                    const res = await call('GET', `/Items/${id}/Images/Primary?maxWidth=300&n=${asked}`, { as: null });
-                    outcome =
-                        res.status === 200 && isAnimated(res.bytes)
-                            ? 'animated'
-                            : `${res.status} ${res.headers.get('content-type')}`;
-                } catch (e) {
-                    outcome = `no answer (${e.cause?.code ?? e.message})`;
-                }
-                answers[outcome] = (answers[outcome] ?? 0) + 1;
-                asked++;
+await filterCheck('Covers_being_applied_never_reach_the_image_processor', async ({ id }) => {
+    const log = serverLog();
+    const before = decodeErrors(log);
+    const movedBefore = savedElsewhere(log);
+    const answers = {};
+    let stop = false;
+    let asked = 0;
+    // One client, one request after the other, as fast as the server answers.
+    const client = (async () => {
+        while (!stop) {
+            let outcome;
+            try {
+                const res = await call('GET', `/Items/${id}/Images/Primary?maxWidth=300&n=${asked}`, { as: null });
+                outcome =
+                    res.status === 200 && isWhole(res.bytes) && isAnimated(res.bytes)
+                        ? 'animated'
+                        : `${res.status} ${res.headers.get('content-type')} ${res.bytes.length} bytes`;
+            } catch (e) {
+                outcome = `no answer (${e.cause?.code ?? e.message})`;
             }
-        })();
-        try {
-            for (let i = 0; i < 6; i++) await rebuild('Movies');
-        } finally {
-            stop = true;
-            await client;
+            answers[outcome] = (answers[outcome] ?? 0) + 1;
+            asked++;
         }
-        served = undefined;
-        const gained = decodeErrors(serverLog()) - before;
-        const summary = Object.entries(answers)
-            .map(([outcome, n]) => `${n} ${outcome}`)
-            .join(', ');
-        expect(
-            gained === 0 && Object.keys(answers).join() === 'animated',
-            `during 6 applies: ${gained} decode errors in the log; answers: ${summary}`
-        );
-        return `${asked} requests during 6 applies, each the animated cover, no decode error`;
-    },
-    { defect: APPLY_RACE }
-);
+    })();
+    const files = [];
+    try {
+        for (let i = 0; i < APPLIES; i++) {
+            await rebuild('Movies');
+            const primary = hostPath(stateFile('Movies').AppliedPrimaryPath);
+            files.push({ primary, inode: fs.statSync(primary).ino });
+        }
+    } finally {
+        stop = true;
+        await client;
+    }
+    served = undefined;
+    const after = serverLog();
+    const gained = decodeErrors(after) - before;
+    const moved = savedElsewhere(after) - movedBefore;
+    const summary = Object.entries(answers)
+        .map(([outcome, n]) => `${n} ${outcome}`)
+        .join(', ');
+    expect(
+        gained === 0 && Object.keys(answers).join() === 'animated',
+        `during ${APPLIES} applies: ${gained} decode errors in the log; answers: ${summary}`
+    );
+    expect(moved === 0, `Jellyfin saved ${moved} of the ${APPLIES} covers elsewhere ("Will retry saving to")`);
+    const paths = new Set(files.map((file) => file.primary));
+    expect(paths.size === 1, `the Primary moved between ${[...paths].join(', ')}`);
+    const reused = files.filter((file, i) => i > 0 && file.inode === files[i - 1].inode).length;
+    expect(reused === 0, `${reused} applies wrote over the previous file in place`);
+    const primary = files[0].primary;
+    const left = fs.readdirSync(path.dirname(primary)).filter((name) => name.startsWith(`.${path.basename(primary)}.`));
+    expect(left.length === 0, `left beside the cover: ${left.join(', ')}`);
+    return `${asked} requests during ${APPLIES} applies, all the animated cover, no decode error, each a new file`;
+});
 
-// The last two restart Jellyfin with another network.xml, and put it back afterwards.
+// Jellyfin's action looks the library up for the request's user and answers 404 when that user may not see it; an
+// anonymous request (an <img> on the login page) gets every library's image, as before.
+await filterCheck('Users_who_may_not_see_a_library_do_not_get_its_cover', async () => {
+    await kid((policy) => {
+        policy.MaxParentalRating = null;
+        policy.EnableAllFolders = false;
+        policy.EnabledFolders = [libraryIds.Home];
+    });
+    const kidToken = await signIn(KID);
+    try {
+        served = undefined;
+        const { file, id } = await servedCover();
+        const route = `/Items/${id}/Images/Primary?maxWidth=300`;
+        const denied = await call('GET', route, { as: kidToken });
+        expect(denied.status === 404, `kid without Movies got ${denied.status} (${denied.bytes.length} bytes)`);
+        const anonymous = await call('GET', route, { as: null });
+        expect(anonymous.status === 200 && sha(anonymous.bytes) === sha(file), `anonymous got ${anonymous.status}`);
+        await kidUnlimited();
+        const before = decodeErrors(serverLog());
+        const allowed = await call('GET', route, { as: kidToken });
+        expect(allowed.status === 200 && isAnimated(allowed.bytes), `kid with Movies got ${allowed.status}`);
+        await expectNoDecodeErrorSince(before, 'kid with Movies');
+        return 'kid without Movies: 404, as in Jellyfin; anonymous and kid with Movies: the cover, no decode error';
+    } finally {
+        await kidUnlimited();
+        served = undefined;
+    }
+});
+
+// The last checks restart Jellyfin, two of them with another network.xml, and put it back afterwards.
 
 const networkXml = path.join(WORK, 'config', 'config', 'network.xml');
 const NETWORK_DEFAULTS = {
@@ -1938,9 +2067,11 @@ const NETWORK_DEFAULTS = {
     IsRemoteIPFilterBlacklist: 'false'
 };
 
-/** Stops Jellyfin, sets elements of its network.xml, starts it, and waits until its log says it started. */
-async function restartWith(elements) {
+/** Stops Jellyfin, sets elements of its network.xml, runs `whileStopped`, starts it, and waits until its log says
+ *  it started. */
+async function restartWith(elements, whileStopped = () => {}) {
     run('docker', ['stop', '-t', '30', CONTAINER]);
+    whileStopped();
     let text = fs.readFileSync(networkXml, 'utf8');
     for (const [name, inner] of Object.entries(elements)) {
         const pattern = new RegExp(`<${name}\\s*/>|<${name}>[\\s\\S]*?</${name}>`);
@@ -2015,10 +2146,59 @@ await filterCheck('Remote_ip_blocklist_still_applies', async ({ id, tag }) => {
     }
 });
 
+// ---------- restart: slow, each restarts Jellyfin ----------
+
+// The render queue deletes the plugin's temporary folder at every start, and the scene finder writes its result
+// files there: the first Scenes build after a start once found every clip unreadable and made the name-only cover.
+await check('restart: First_scenes_build_after_a_restart_has_clips', async () => {
+    await ensureCovers();
+    await resetLibrary('Mixed');
+    const temp = path.join(WORK, 'config', 'data', 'library-cover-maker', 'tmp');
+    await restartWith(NETWORK_DEFAULTS);
+    await waitForServer();
+    token = await signIn(ADMIN);
+    try {
+        expect(!fs.existsSync(temp), 'the temporary folder is there after the start, so this would prove nothing');
+        const state = await rebuild('Mixed', { Mode: 'Scenes' });
+        const record = currentRecord(state);
+        expect(record.TitleIds.length > 0 && !state.LastError, `the cover shows only the name: ${state.LastError}`);
+        return `the first build after the start shows ${record.TitleIds.length} titles`;
+    } finally {
+        await resetLibrary('Mixed');
+    }
+});
+
+// The applier renames its cover to .<name>.<32 hex> right before Jellyfin's SaveImage writes the new one. Jellyfin
+// stopped in between left the library's Primary missing (404 and an error per request, a refresh did not help):
+// the plugin's start puts the cover back.
+await check('restart: Cover_set_aside_by_a_stop_during_an_apply_is_put_back', async () => {
+    const { file, id } = await servedCover();
+    const primary = hostPath(stateFile('Movies').AppliedPrimaryPath);
+    const aside = path.join(path.dirname(primary), `.${path.basename(primary)}.${randomUUID().replaceAll('-', '')}`);
+    try {
+        await restartWith(NETWORK_DEFAULTS, () => fs.renameSync(primary, aside)); // as the applier renames it
+        await waitForServer();
+        token = await signIn(ADMIN);
+        const before = decodeErrors(serverLog());
+        const res = await call('GET', `/Items/${id}/Images/Primary?maxWidth=300`, { as: null });
+        expect(res.status === 200 && sha(res.bytes) === sha(file), `the cover answered ${res.status}`);
+        await expectNoDecodeErrorSince(before, 'the cover put back');
+        const left = fs
+            .readdirSync(path.dirname(primary))
+            .filter((name) => name.startsWith(`.${path.basename(primary)}.`));
+        expect(left.length === 0, `left in the folder: ${left.join(', ')}`);
+        expect(/was put back from/.test(serverLog()), 'the plugin did not log that it put the cover back');
+        return 'the cover served again after the start, nothing left beside it';
+    } finally {
+        if (fs.existsSync(aside) && !fs.existsSync(primary)) fs.renameSync(aside, primary);
+        served = undefined;
+    }
+});
+
 // ---------- log ----------
 
 // Keep this check last: it reads the whole log up to this point. Jellyfin's own decode errors are counted for the
-// record only: the filter checks assert none in their windows, and the race above makes some on purpose.
+// record only: the filter checks assert none in their windows.
 await check('log: server log has no plugin [ERR] or [FTL] entries', async () => {
     const log = serverLog();
     const errors = pluginErrorEntries(log);

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -59,7 +60,7 @@ public sealed class CoverApplier
     /// How far the modification time of a library's Primary image may be from the one recorded when the plugin
     /// applied it, and still be that image. Jellyfin keeps the time in its database, and a round trip through it must
     /// not make the plugin's own image look changed; an upload at the same path writes a new file, far more than this
-    /// later. The watcher of Edit images uploads and the image filter compare with it alike.
+    /// later. The watcher of Edit images uploads compares with it.
     /// </summary>
     internal static readonly TimeSpan AppliedTimeTolerance = TimeSpan.FromSeconds(1);
 
@@ -84,6 +85,7 @@ public sealed class CoverApplier
     private readonly Func<PluginConfiguration> _config;
     private readonly Lock _lock = new();
     private readonly Dictionary<Guid, int> _applying = new();
+    private readonly ConcurrentDictionary<Guid, int> _replacing = new();
 
     public CoverApplier(
         IProviderManager providers,
@@ -120,6 +122,65 @@ public sealed class CoverApplier
             return _applying.ContainsKey(libraryId);
         }
     }
+
+    /// <summary>
+    /// Repairs what a stop of Jellyfin in the middle of an apply left of the library's Primary: the plugin's cover
+    /// moved aside for <c>SaveImage</c> (<c>.&lt;name&gt;.&lt;32 hex&gt;</c> beside the path the state recorded).
+    /// When the file at that path is missing, or is neither the applied cover nor one of the store's covers (a save
+    /// cut short), the cover left aside is put back, as long as its time is the one the state recorded. Every other
+    /// file left aside is deleted. For the start of the plugin, before any build runs; it changes no state.
+    /// </summary>
+    public void RecoverInterruptedSave(Guid libraryId)
+    {
+        var state = _store.Load(libraryId);
+        var path = state.AppliedPrimaryPath;
+        var folder = string.IsNullOrEmpty(path) || !Path.IsPathRooted(path) ? null : Path.GetDirectoryName(path);
+        if (folder is null || !Directory.Exists(folder))
+        {
+            return;
+        }
+
+        var prefix = "." + Path.GetFileName(path) + ".";
+        var left = Directory.EnumerateFiles(folder, prefix + "*")
+            .Where(file => IsAsideName(Path.GetFileName(file), prefix))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        if (left.Count == 0)
+        {
+            return;
+        }
+
+        var inOrder = File.Exists(path)
+            && (IsUntouched(path!, state.AppliedPrimaryModified) || MatchesAStoredCover(libraryId, path!));
+        foreach (var aside in left)
+        {
+            if (!inOrder && IsUntouched(aside, state.AppliedPrimaryModified))
+            {
+                File.Move(aside, path!, overwrite: true);
+                inOrder = true;
+                _log.LogWarning(
+                    "Library Cover Maker: an apply to library {LibraryId} was cut short, so its cover {Path} was put "
+                    + "back from {Aside}",
+                    libraryId,
+                    path,
+                    aside);
+                continue;
+            }
+
+            _log.LogInformation(
+                "Library Cover Maker: removed {Aside}, left by an apply to library {LibraryId} that was cut short",
+                aside,
+                libraryId);
+            TryDelete(aside);
+        }
+    }
+
+    /// <summary>
+    /// Whether the plugin is replacing this library's Primary file right now: from moving its own cover out of the way
+    /// until <c>SaveImage</c> returns. In that time Jellyfin's item may name a file that is not there yet, so the image
+    /// filter waits for it instead of handing the request to Jellyfin.
+    /// </summary>
+    public bool IsReplacingPrimary(Guid libraryId) => _replacing.ContainsKey(libraryId);
 
     /// <summary>
     /// The file of a cover that would become the Primary image, with its MIME type, or null when it is missing. A
@@ -168,6 +229,12 @@ public sealed class CoverApplier
     /// Cancellation is honored until <c>SaveImage</c> starts; from there the apply runs to its end, so that the
     /// library never shows a cover the state does not know about. The library's item is looked up once, and that one
     /// instance is saved, read back and written to the database, as Jellyfin's own upload does.
+    /// <para>
+    /// When the library's Primary is the cover the plugin applied last, untouched since, it is moved aside in its
+    /// folder right before <c>SaveImage</c> and deleted once the save went through, or moved back when it failed (see
+    /// <c>MoveOwnPrimaryAside</c>). After the save, a cover the plugin applied before that is still on disk but no
+    /// longer the Primary is deleted. The original is never moved or deleted.
+    /// </para>
     /// </remarks>
     /// <exception cref="FileNotFoundException">The cover's file is missing. Nothing was changed.</exception>
     /// <exception cref="LibraryGoneException">The library no longer exists. Nothing was changed.</exception>
@@ -194,6 +261,11 @@ public sealed class CoverApplier
         try
         {
             var original = KeepOriginal(state, library);
+            var before = library.Primary();
+            var (appliedBefore, appliedAtBefore) = ShowsOriginal(state)
+                ? (null, null)
+                : (state.AppliedPrimaryPath, state.AppliedPrimaryModified);
+            string? aside = null;
             try
             {
                 ct.ThrowIfCancellationRequested();
@@ -201,7 +273,27 @@ public sealed class CoverApplier
                     file.Path, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, FileOptions.Asynchronous);
                 await using (stream.ConfigureAwait(false))
                 {
-                    await library.SaveAsync(stream, file.MimeType, CancellationToken.None).ConfigureAwait(false);
+                    MarkReplacing(libraryId);
+                    try
+                    {
+                        aside = MoveOwnPrimaryAside(libraryId, before, appliedBefore, appliedAtBefore);
+                        try
+                        {
+                            await library.SaveAsync(stream, file.MimeType, CancellationToken.None)
+                                .ConfigureAwait(false);
+                        }
+                        catch when (aside is not null)
+                        {
+                            // The library keeps its image: the very file goes back where the item says it is.
+                            PutBack(aside, before!.Path);
+                            aside = null;
+                            throw;
+                        }
+                    }
+                    finally
+                    {
+                        UnmarkReplacing(libraryId);
+                    }
                 }
             }
             catch
@@ -219,6 +311,25 @@ public sealed class CoverApplier
 
             // Recorded before the item is written to the database, which is what raises ItemUpdated.
             var applied = library.Primary();
+            if (before is { IsLocalFile: true, Automatic: false }
+                && applied is not null
+                && !string.Equals(before.Path, applied.Path, StringComparison.Ordinal))
+            {
+                // Jellyfin's first choice was busy (a reader held a file the plugin could not move) or another type
+                // of image had another name: either way the old file stays unless it is the plugin's own.
+                _log.LogInformation(
+                    "Library Cover Maker: Jellyfin saved the cover of library {LibraryId} to {Path}, not to {Before}",
+                    libraryId,
+                    applied.Path,
+                    before.Path);
+            }
+
+            if (aside is not null)
+            {
+                TryDelete(aside);
+            }
+
+            RemoveStaleCover(state, appliedBefore, appliedAtBefore, applied?.Path);
             state.AppliedPrimaryPath = applied?.Path;
             state.AppliedPrimaryModified = applied?.Modified;
             state.CurrentCoverId = record.Id;
@@ -614,7 +725,8 @@ public sealed class CoverApplier
 
     // Whether a file has the same bytes as one of the covers the store keeps for the library: then it is a cover the
     // plugin applied, whatever its path says (the state that recorded the path may have been lost).
-    private bool MatchesAStoredCover(Guid libraryId, string path)
+    // With except, the files of that cover (the original) do not count.
+    private bool MatchesAStoredCover(Guid libraryId, string path, Guid? except = null)
     {
         var folder = Path.GetDirectoryName(_store.AnimatedPath(libraryId, Guid.Empty))!;
         if (!Directory.Exists(folder))
@@ -622,11 +734,13 @@ public sealed class CoverApplier
             return false;
         }
 
+        var skip = except?.ToString("N") + ".";
         var length = new FileInfo(path).Length;
         byte[]? bytes = null;
         foreach (var stored in Directory.EnumerateFiles(folder))
         {
-            if (new FileInfo(stored).Length != length)
+            if (new FileInfo(stored).Length != length
+                || (except is not null && Path.GetFileName(stored).StartsWith(skip, StringComparison.Ordinal)))
             {
                 continue;
             }
@@ -754,6 +868,121 @@ public sealed class CoverApplier
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _log.LogWarning(ex, "Library Cover Maker: could not delete {Path}", path);
+        }
+    }
+
+    // The library's changes run one at a time (the store's gate), so a flag is enough here.
+    private void MarkReplacing(Guid libraryId) => _replacing[libraryId] = 0;
+
+    private void UnmarkReplacing(Guid libraryId) => _replacing.TryRemove(libraryId, out _);
+
+    // Whether the library shows its original (an admin's image put back, or Jellyfin's collage drawn again): the
+    // state records its path too, but the plugin never moves or deletes it.
+    private static bool ShowsOriginal(LibraryCoverState state) =>
+        state.Original is { } original && state.CurrentCoverId == original.Id;
+
+    // Whether the image is the cover the plugin last applied and nothing has written it since: the path the state
+    // recorded, with the time recorded then, both in Jellyfin's item and on disk. An outside upload and Jellyfin's
+    // collage never are, except an Edit images upload the plugin kept a copy of and recorded; the original is ruled
+    // out by the caller (ShowsOriginal).
+    private static bool IsOwnApplied(PrimaryImage image, string? appliedPath, DateTime? appliedAt) =>
+        image.IsLocalFile
+        && string.Equals(image.Path, appliedPath, StringComparison.Ordinal)
+        && appliedAt is { } at
+        && (image.Modified - at).Duration() <= AppliedTimeTolerance
+        && File.Exists(image.Path)
+        && (File.GetLastWriteTimeUtc(image.Path) - at).Duration() <= AppliedTimeTolerance;
+
+    // Moves the plugin's own current Primary out of the way of SaveImage, and returns where it went, or null when the
+    // image is not the plugin's or could not be moved (then SaveImage overwrites it in place, as it always did).
+    // Jellyfin's image saver opens its target with FileShare.None, which fails while any request reads the file, and
+    // then saves the cover to another path; a rename is not stopped by readers (they keep the old file), so the saver
+    // gets a path no one reads. It is a rename in the same folder rather than a deletion so that a failed save can
+    // put the very same file back, and the item never names a file that is gone.
+    private string? MoveOwnPrimaryAside(
+        Guid libraryId,
+        PrimaryImage? current,
+        string? appliedPath,
+        DateTime? appliedAt)
+    {
+        if (current is null || !IsOwnApplied(current, appliedPath, appliedAt))
+        {
+            return null;
+        }
+
+        var folder = Path.GetDirectoryName(current.Path)!;
+        var aside = Path.Combine(folder, "." + Path.GetFileName(current.Path) + "." + Guid.NewGuid().ToString("N"));
+
+        // Its name is what RecoverInterruptedSave looks for after a stop in the middle of the save.
+        try
+        {
+            File.Move(current.Path, aside);
+            return aside;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.LogWarning(
+                ex,
+                "Library Cover Maker: could not move the current cover of library {LibraryId} ({Path}) out of the way, "
+                + "so Jellyfin writes over it",
+                libraryId,
+                current.Path);
+            return null;
+        }
+    }
+
+    // Whether a file name is the prefix and then the 32 lowercase hex digits of a Guid, as MoveOwnPrimaryAside names
+    // the files it moves.
+    private static bool IsAsideName(string name, string prefix) =>
+        name.Length == prefix.Length + 32
+        && name.StartsWith(prefix, StringComparison.Ordinal)
+        && name.AsSpan(prefix.Length).ContainsAnyExcept("0123456789abcdef") is false;
+
+    // Whether a file still has the time recorded when the plugin applied it.
+    private static bool IsUntouched(string path, DateTime? appliedAt) =>
+        appliedAt is { } at && (File.GetLastWriteTimeUtc(path) - at).Duration() <= AppliedTimeTolerance;
+
+    // After a failed save: the cover moved aside goes back to its path, over whatever the save left there.
+    private void PutBack(string aside, string path)
+    {
+        try
+        {
+            File.Move(aside, path, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.LogError(
+                ex,
+                "Library Cover Maker: could not put the cover {Aside} back at {Path} after a failed save; the "
+                + "library's Primary image names a missing file until the next apply or refresh",
+                aside,
+                path);
+        }
+    }
+
+    // After a save: the cover the plugin applied before, when it is still on disk at a path that is no longer the
+    // Primary (Jellyfin saved the new one elsewhere, as it does when its first choice is busy). Deleted only when it
+    // is still the plugin's own: untouched since it was applied, or the same bytes as one of the store's generated or
+    // uploaded covers (never the original).
+    private void RemoveStaleCover(LibraryCoverState state, string? appliedPath, DateTime? appliedAt, string? primary)
+    {
+        if (string.IsNullOrEmpty(appliedPath)
+            || string.Equals(appliedPath, primary, StringComparison.Ordinal)
+            || !Path.IsPathRooted(appliedPath)
+            || !File.Exists(appliedPath))
+        {
+            return;
+        }
+
+        if (IsUntouched(appliedPath, appliedAt)
+            || MatchesAStoredCover(state.LibraryId, appliedPath, except: state.Original?.Id))
+        {
+            _log.LogInformation(
+                "Library Cover Maker: removed the earlier cover of library {LibraryId} at {Path}, which is no longer "
+                + "its Primary image",
+                state.LibraryId,
+                appliedPath);
+            TryDelete(appliedPath);
         }
     }
 
