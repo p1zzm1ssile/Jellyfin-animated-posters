@@ -29,7 +29,9 @@ env:
   PLUGIN_TARGET_ABI: '12.0.0.0'   # built against Jellyfin 12.0.0
   PLUGIN_DESCRIPTION: 'Keeps an animated cover on every library, rendered on the server and renewed on a schedule.'
   PLUGIN_OVERVIEW: 'Animated covers for your libraries, made on the server and renewed every week.'
-  PLUGIN_IMAGE: 'https://raw.githubusercontent.com/p1zzm1ssile/Library-Cover-Maker/main/Jellyfin.Plugin.LibraryCoverMaker/logo.png'
+  # A backslash at the end of a line inside double quotes joins the next line with no space (YAML).
+  PLUGIN_IMAGE: "https://raw.githubusercontent.com/p1zzm1ssile/Library-Cover-Maker/main/\
+    Jellyfin.Plugin.LibraryCoverMaker/logo.png"
 
 # The jobs run on Ubuntu 24.04, not ubuntu-latest, like tests.yml (see the note there).
 jobs:
@@ -72,18 +74,29 @@ jobs:
           # The <Version> of the project's own PropertyGroup. Reading the XML instead of searching the
           # text keeps a <Version> in a comment or in a package reference from being taken for it.
           root = ET.parse(project).getroot()
-          found = [e.text.strip() for group in root.findall("PropertyGroup") for e in group.findall("Version") if e.text]
+          found = [
+              e.text.strip()
+              for group in root.findall("PropertyGroup")
+              for e in group.findall("Version")
+              if e.text
+          ]
           if len(found) != 1:
               print(f"::error::{project} must have exactly one <Version> in a PropertyGroup, but has {len(found)}.")
               sys.exit(1)
           if found[0] != want:
-              print(f"::error::Tag {tag} needs <Version>{want}</Version> in {project}, but this commit has {found[0]}. Merge the release first, then tag the merged commit (delete this tag with: git push origin :refs/tags/{tag}).")
+              print(
+                  f"::error::Tag {tag} needs <Version>{want}</Version> in {project}, but this commit has {found[0]}. "
+                  "Merge the release first, then tag the merged commit "
+                  f"(delete this tag with: git push origin :refs/tags/{tag})."
+              )
               sys.exit(1)
           PY
-          # And it must be on main: a branch that already has the new version but isn't merged would pass the check above.
+          # And it must be on main: a branch that already has the new version but isn't merged would pass the
+          # check above.
           git fetch --quiet origin main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::Tag $GITHUB_REF_NAME is on a commit that isn't on main. Merge first, then tag the merged commit."
+            echo "::error::Tag $GITHUB_REF_NAME is on a commit that isn't on main." \
+              "Merge first, then tag the merged commit."
             exit 1
           fi
           # The release notes and the manifest's changelog are this version's section of CHANGELOG.md.
@@ -187,7 +200,8 @@ jobs:
           shopt -s nullglob
           licenses=("$PLUGIN_FONTS_DIR"/OFL-*.txt)
           if [ ${#licenses[@]} -eq 0 ]; then
-            echo "::error::No OFL-*.txt font licenses in $PLUGIN_FONTS_DIR. They ship in the zip, so the release can't go out without them."
+            echo "::error::No OFL-*.txt font licenses in $PLUGIN_FONTS_DIR." \
+              "They ship in the zip, so the release can't go out without them."
             exit 1
           fi
           zip -j "$ZIP_FILE" "out/$PLUGIN_DLL" "${licenses[@]}"
@@ -210,7 +224,8 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" "$ZIP_FILE" --clobber
             gh release edit "$GITHUB_REF_NAME" --title "$PLUGIN_NAME $RELEASE_VERSION" --notes-file RELEASE_NOTES.md
           else
-            gh release create "$GITHUB_REF_NAME" "$ZIP_FILE" --verify-tag --title "$PLUGIN_NAME $RELEASE_VERSION" --notes-file RELEASE_NOTES.md
+            gh release create "$GITHUB_REF_NAME" "$ZIP_FILE" --verify-tag \
+              --title "$PLUGIN_NAME $RELEASE_VERSION" --notes-file RELEASE_NOTES.md
           fi
 
       - name: Add this version to manifest.json on main
@@ -251,5 +266,7 @@ jobs:
               git pull --rebase origin main
             fi
           done
-          echo "::error::Couldn't push manifest.json to main after 3 tries, so this release isn't in the manifest yet. Re-run this job to try again: it is safe, as the release's zip is replaced and this version's manifest entry is overwritten."
+          echo "::error::Couldn't push manifest.json to main after 3 tries," \
+            "so this release isn't in the manifest yet. Re-run this job to try again: it is safe," \
+            "as the release's zip is replaced and this version's manifest entry is overwritten."
           exit 1

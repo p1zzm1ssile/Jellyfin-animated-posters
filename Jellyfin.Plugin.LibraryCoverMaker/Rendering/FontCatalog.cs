@@ -19,16 +19,16 @@ namespace Jellyfin.Plugin.LibraryCoverMaker.Rendering;
 /// </para>
 /// <para>
 /// Provenance. All five come from the google/fonts repository at commit 47d54ca1ebb14fd864695f1d39dc734f39017c33
-/// (folders ofl/bodonimoda, ofl/playfairdisplay, ofl/cinzel, ofl/bebasneue and ofl/oswald), and each <c>OFL-*.txt</c> is
-/// that folder's <c>OFL.txt</c> unchanged. Bebas Neue is the published file. The other four are static instances of the
-/// published variable fonts, made once with <c>fonttools varLib.instancer {file} wght={weight}</c>, at the weights the
-/// cover page used: Bodoni Moda 700, Playfair Display 800, Cinzel 800 and Oswald 700. Bodoni Moda is also pinned to its
-/// default optical size, <c>opsz=11</c>: the page asked Google Fonts for the weight only, and the title it drew matches
-/// that size, not the 96 at the top of the axis. The instances' name tables were then made to agree with their weight.
-/// Playfair Display declares a Reserved Font Name, which a Modified Version of the font may not use (OFL 1.1, section 3),
-/// so its instance is called Cover Serif: inside the file, in the file's name (<c>CoverSerif-ExtraBold.ttf</c>) and
-/// everywhere the plugin presents it. Its license file stays <c>OFL-PlayfairDisplay.txt</c>, the text of the work it
-/// was made from.
+/// (folders ofl/bodonimoda, ofl/playfairdisplay, ofl/cinzel, ofl/bebasneue and ofl/oswald), and each <c>OFL-*.txt</c>
+/// is that folder's <c>OFL.txt</c> unchanged. Bebas Neue is the published file. The other four are static instances of
+/// the published variable fonts, made once with <c>fonttools varLib.instancer {file} wght={weight}</c>, at the weights
+/// the cover page used: Bodoni Moda 700, Playfair Display 800, Cinzel 800 and Oswald 700. Bodoni Moda is also pinned to
+/// its default optical size, <c>opsz=11</c>: the page asked Google Fonts for the weight only, and the title it drew
+/// matches that size, not the 96 at the top of the axis. The instances' name tables were then made to agree with their
+/// weight. Playfair Display declares a Reserved Font Name, which a Modified Version of the font may not use (OFL 1.1,
+/// section 3), so its instance is called Cover Serif: inside the file, in the file's name
+/// (<c>CoverSerif-ExtraBold.ttf</c>) and everywhere the plugin presents it. Its license file stays
+/// <c>OFL-PlayfairDisplay.txt</c>, the text of the work it was made from.
 /// </para>
 /// </remarks>
 public static class FontCatalog
@@ -49,12 +49,13 @@ public static class FontCatalog
     private static readonly Lock Gate = new();
     private static readonly Dictionary<string, SKTypeface> Loaded = new();
 
-    // One shaper per typeface, kept as long as the typeface is. The bundled typefaces live for good, so their shapers do
-    // too; a fallback typeface can be collected, and takes its shaper with it.
+    // One shaper per typeface, kept as long as the typeface is. The bundled typefaces live for good, so their shapers
+    // do too; a fallback typeface can be collected, and takes its shaper with it.
     private static readonly ConditionalWeakTable<SKTypeface, SKShaper> Shapers = new();
 
     /// <summary>The bundled families, in the order the cover page lists its fonts. The first is the default.</summary>
-    public static IReadOnlyList<string> Families { get; } = Array.AsReadOnly(Array.ConvertAll(Bundled, font => font.Family));
+    public static IReadOnlyList<string> Families { get; } = Array.AsReadOnly(
+        Array.ConvertAll(Bundled, font => font.Family));
 
     /// <summary>
     /// The typeface of a bundled family. The name is matched ignoring case; a name that is unknown, blank or missing
@@ -63,7 +64,9 @@ public static class FontCatalog
     /// </summary>
     public static SKTypeface Get(string? family)
     {
-        var font = Array.Find(Bundled, candidate => string.Equals(candidate.Family, family, StringComparison.OrdinalIgnoreCase))
+        var font = Array.Find(
+            Bundled,
+            candidate => string.Equals(candidate.Family, family, StringComparison.OrdinalIgnoreCase))
             ?? Bundled[0];
 
         lock (Gate)
@@ -107,10 +110,10 @@ public static class FontCatalog
     }
 
     /// <summary>
-    /// Lays out <paramref name="text"/> with HarfBuzz, in the font's typeface and at its size, as a browser lays out canvas
-    /// text: pairs the font kerns are kerned, scripts whose letters join take their joined forms, and right-to-left text
-    /// comes out in visual order, so the first glyph is always the leftmost. The result holds the glyph ids, where each
-    /// glyph goes measured from the start of the line, and the width of the line.
+    /// Lays out <paramref name="text"/> with HarfBuzz, in the font's typeface and at its size, as a browser lays out
+    /// canvas text: pairs the font kerns are kerned, scripts whose letters join take their joined forms, and
+    /// right-to-left text comes out in visual order, so the first glyph is always the leftmost. The result holds the
+    /// glyph ids, where each glyph goes measured from the start of the line, and the width of the line.
     /// </summary>
     /// <remarks>
     /// HarfBuzz shapes the whole text as one run, with the direction and script it guesses from the first strong
@@ -122,10 +125,10 @@ public static class FontCatalog
         ArgumentNullException.ThrowIfNull(font);
         ArgumentNullException.ThrowIfNull(text);
 
-        // The string overload of Shape gives every call a buffer of its own, so one shaper serves any number of threads.
-        // The shaper of a typeface that nothing else holds is reachable only through the table, which does not keep it
-        // alive while HarfBuzz runs. The GC.KeepAlive call below does, until the native shaping has returned; a local
-        // variable alone would not, because the runtime counts a local as dead after its last use.
+        // The string overload of Shape gives every call a buffer of its own, so one shaper serves any number of
+        // threads. The shaper of a typeface that nothing else holds is reachable only through the table, which does not
+        // keep it alive while HarfBuzz runs. The GC.KeepAlive call below does, until the native shaping has returned; a
+        // local variable alone would not, because the runtime counts a local as dead after its last use.
         var shaper = Shapers.GetValue(font.Typeface, static typeface => new SKShaper(typeface));
         var shaped = shaper.Shape(text, font);
         GC.KeepAlive(shaper);
@@ -183,7 +186,8 @@ public static class FontCatalog
     {
         var resource = "Fonts/" + file;
         using var stream = typeof(FontCatalog).Assembly.GetManifestResourceStream(resource)
-            ?? throw new InvalidOperationException($"The font resource {resource} is missing from the plugin assembly.");
+            ?? throw new InvalidOperationException(
+                $"The font resource {resource} is missing from the plugin assembly.");
 
         // SKData copies the bytes into native memory, which the typeface then keeps alive by itself.
         using var data = SKData.Create(stream);

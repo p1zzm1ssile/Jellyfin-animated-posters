@@ -24,7 +24,16 @@ public sealed class CoverRendererTests
     private const string TempFolder = "/data/library-cover-maker/tmp";
 
     private static RenderPlan Plan(IReadOnlyList<SlotInput> slots, bool fade = true, string? tempFolder = TempFolder) =>
-        new(slots, "/data/overlay.png", 640, 360, 12, fade, "/data/covers/ab12.webp", "/data/covers/ab12.jpg", tempFolder);
+        new(
+            slots,
+            "/data/overlay.png",
+            640,
+            360,
+            12,
+            fade,
+            "/data/covers/ab12.webp",
+            "/data/covers/ab12.jpg",
+            tempFolder);
 
     private static SlotInput Image(string path, double seconds = 1.5) => new(SlotKind.Image, path, 0, seconds, false);
 
@@ -66,7 +75,8 @@ public sealed class CoverRendererTests
     [Fact]
     public void Two_images_with_fade_build_zoompan_and_xfade()
     {
-        var args = CoverRenderer.BuildArguments(Plan(new[] { Image("/media/a/fanart.jpg"), Image("/media/b/fanart.jpg") }));
+        var args = CoverRenderer.BuildArguments(
+            Plan(new[] { Image("/media/a/fanart.jpg"), Image("/media/b/fanart.jpg") }));
         var graph = Graph(args);
 
         Assert.Contains("zoompan=z='1+0.12*on/", graph);
@@ -76,8 +86,12 @@ public sealed class CoverRendererTests
         Assert.Equal(
             string.Join(
                 ';',
-                "[0:v]trim=end_frame=1,scale=1280:720:force_original_aspect_ratio=increase:reset_sar=1,crop=1280:720,zoompan=z='1+0.12*on/18':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=18:s=640x360:fps=12,setsar=1,format=yuv420p[s0]",
-                "[1:v]trim=end_frame=1,scale=1280:720:force_original_aspect_ratio=increase:reset_sar=1,crop=1280:720,zoompan=z='1+0.12*on/18':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=18:s=640x360:fps=12,setsar=1,format=yuv420p[s1]",
+                "[0:v]trim=end_frame=1,scale=1280:720:force_original_aspect_ratio=increase:reset_sar=1,crop=1280:720,"
+                + "zoompan=z='1+0.12*on/18':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=18:s=640x360:fps=12,setsar=1,"
+                + "format=yuv420p[s0]",
+                "[1:v]trim=end_frame=1,scale=1280:720:force_original_aspect_ratio=increase:reset_sar=1,crop=1280:720,"
+                + "zoompan=z='1+0.12*on/18':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=18:s=640x360:fps=12,setsar=1,"
+                + "format=yuv420p[s1]",
                 "[s0][s1]xfade=transition=fade:duration=0.333:offset=1.167[x1]",
                 "[x1][2:v]overlay=shortest=1:format=auto,format=yuv420p,split=2[anim][st]"),
             graph);
@@ -86,7 +100,8 @@ public sealed class CoverRendererTests
     [Fact]
     public void Arguments_are_the_validated_command()
     {
-        var args = CoverRenderer.BuildArguments(Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/Film (2020).mkv") }));
+        var args = CoverRenderer.BuildArguments(
+            Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/Film (2020).mkv") }));
 
         Assert.Equal(
             new[]
@@ -98,8 +113,12 @@ public sealed class CoverRendererTests
                 "-filter_complex",
                 string.Join(
                     ';',
-                    "[0:v]trim=end_frame=1,scale=1280:720:force_original_aspect_ratio=increase:reset_sar=1,crop=1280:720,zoompan=z='1+0.12*on/18':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=18:s=640x360:fps=12,setsar=1,format=yuv420p[s0]",
-                    "[1:v]fps=12,scale=640:360:force_original_aspect_ratio=increase:reset_sar=1,crop=640:360,setsar=1,format=yuv420p,tpad=stop_mode=clone:stop=18,trim=end_frame=18[s1]",
+                    "[0:v]trim=end_frame=1,scale=1280:720:force_original_aspect_ratio=increase:reset_sar=1,"
+                    + "crop=1280:720,"
+                    + "zoompan=z='1+0.12*on/18':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=18:s=640x360:fps=12,"
+                    + "setsar=1,format=yuv420p[s0]",
+                    "[1:v]fps=12,scale=640:360:force_original_aspect_ratio=increase:reset_sar=1,crop=640:360,setsar=1,"
+                    + "format=yuv420p,tpad=stop_mode=clone:stop=18,trim=end_frame=18[s1]",
                     "[s0][s1]xfade=transition=fade:duration=0.333:offset=1.167[x1]",
                     "[x1][2:v]overlay=shortest=1:format=auto,format=yuv420p,split=2[anim][st]"),
                 "-map", "[anim]", "-threads", "2", "-c:v", "libwebp_anim", "-quality", "78", "-loop", "0", "-an",
@@ -145,8 +164,11 @@ public sealed class CoverRendererTests
         Assert.Equal(
             string.Join(
                 ';',
-                "[0:v]trim=end_frame=1,scale=1280:720:force_original_aspect_ratio=increase:reset_sar=1,crop=1280:720,zoompan=z='1+0.12*on/18':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=18:s=640x360:fps=12,setsar=1,format=yuv420p[s0]",
-                "[1:v]crop=1280:540:0:90,fps=12,scale=640:360:force_original_aspect_ratio=increase:reset_sar=1,crop=640:360,setsar=1,format=yuv420p,tpad=stop_mode=clone:stop=18,trim=end_frame=18[s1]",
+                "[0:v]trim=end_frame=1,scale=1280:720:force_original_aspect_ratio=increase:reset_sar=1,crop=1280:720,"
+                + "zoompan=z='1+0.12*on/18':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=18:s=640x360:fps=12,setsar=1,"
+                + "format=yuv420p[s0]",
+                "[1:v]crop=1280:540:0:90,fps=12,scale=640:360:force_original_aspect_ratio=increase:reset_sar=1,"
+                + "crop=640:360,setsar=1,format=yuv420p,tpad=stop_mode=clone:stop=18,trim=end_frame=18[s1]",
                 "[s0][s1]xfade=transition=fade:duration=0.333:offset=1.167[x1]",
                 "[x1][2:v]overlay=shortest=1:format=auto,format=yuv420p,split=2[anim][st]"),
             Graph(args));
@@ -155,8 +177,11 @@ public sealed class CoverRendererTests
     [Fact]
     public void A_crop_comes_before_the_tone_mapping_of_an_hdr_slot()
     {
-        var args = CoverRenderer.BuildArguments(
-            Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/hdr.mkv", hdr: true) with { Crop = new CropRect(160, 0, 960, 720) } }));
+        var args = CoverRenderer.BuildArguments(Plan(new[]
+        {
+            Image("/media/a/fanart.jpg"),
+            Video("/media/b/hdr.mkv", hdr: true) with { Crop = new CropRect(160, 0, 960, 720) },
+        }));
 
         Assert.StartsWith("[1:v]crop=960:720:160:0,tonemapx=tonemap=bt2390:", Chain(args, input: 1));
     }
@@ -164,7 +189,8 @@ public sealed class CoverRendererTests
     [Fact]
     public void A_slot_without_a_crop_adds_no_crop_before_the_scale()
     {
-        var args = CoverRenderer.BuildArguments(Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/clean.mkv") }));
+        var args = CoverRenderer.BuildArguments(
+            Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/clean.mkv") }));
 
         Assert.StartsWith("[1:v]fps=12,", Chain(args, input: 1));
     }
@@ -184,10 +210,14 @@ public sealed class CoverRendererTests
     [Fact]
     public void No_fade_uses_concat()
     {
-        var args = CoverRenderer.BuildArguments(
-            Plan(
-                new[] { Image("/media/a/fanart.jpg"), Video("/media/b/hdr.mkv", start: 3, hdr: true), Video("/media/c/sdr.mkv", start: 4) },
-                fade: false));
+        var args = CoverRenderer.BuildArguments(Plan(
+            new[]
+            {
+                Image("/media/a/fanart.jpg"),
+                Video("/media/b/hdr.mkv", start: 3, hdr: true),
+                Video("/media/c/sdr.mkv", start: 4),
+            },
+            fade: false));
         var graph = Graph(args);
 
         Assert.Contains("concat=n=3:v=1:a=0", graph);
@@ -195,9 +225,14 @@ public sealed class CoverRendererTests
         Assert.Equal(
             string.Join(
                 ';',
-                "[0:v]trim=end_frame=1,scale=1280:720:force_original_aspect_ratio=increase:reset_sar=1,crop=1280:720,zoompan=z='1+0.12*on/18':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=18:s=640x360:fps=12,setsar=1,format=yuv420p[s0]",
-                "[1:v]tonemapx=tonemap=bt2390:desat=0:peak=100:t=bt709:m=bt709:p=bt709:format=yuv420p,fps=12,scale=640:360:force_original_aspect_ratio=increase:reset_sar=1,crop=640:360,setsar=1,format=yuv420p,tpad=stop_mode=clone:stop=18,trim=end_frame=18[s1]",
-                "[2:v]fps=12,scale=640:360:force_original_aspect_ratio=increase:reset_sar=1,crop=640:360,setsar=1,format=yuv420p,tpad=stop_mode=clone:stop=18,trim=end_frame=18[s2]",
+                "[0:v]trim=end_frame=1,scale=1280:720:force_original_aspect_ratio=increase:reset_sar=1,crop=1280:720,"
+                + "zoompan=z='1+0.12*on/18':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=18:s=640x360:fps=12,setsar=1,"
+                + "format=yuv420p[s0]",
+                "[1:v]tonemapx=tonemap=bt2390:desat=0:peak=100:t=bt709:m=bt709:p=bt709:format=yuv420p,fps=12,"
+                + "scale=640:360:force_original_aspect_ratio=increase:reset_sar=1,crop=640:360,setsar=1,format=yuv420p,"
+                + "tpad=stop_mode=clone:stop=18,trim=end_frame=18[s1]",
+                "[2:v]fps=12,scale=640:360:force_original_aspect_ratio=increase:reset_sar=1,crop=640:360,setsar=1,"
+                + "format=yuv420p,tpad=stop_mode=clone:stop=18,trim=end_frame=18[s2]",
                 "[s0][s1][s2]concat=n=3:v=1:a=0[v]",
                 "[v][3:v]overlay=shortest=1:format=auto,format=yuv420p,split=2[anim][st]"),
             graph);
@@ -220,7 +255,8 @@ public sealed class CoverRendererTests
     {
         // A GIF or an animated WebP given to a picture slot would otherwise give zoompan a whole zoom for each of
         // its frames: a 10-frame GIF as the last slot made a cover of 26 s instead of 6 s.
-        var args = CoverRenderer.BuildArguments(Plan(new[] { Image("/media/a/anim.gif"), Image("/media/b/fanart.jpg") }));
+        var args = CoverRenderer.BuildArguments(
+            Plan(new[] { Image("/media/a/anim.gif"), Image("/media/b/fanart.jpg") }));
 
         Assert.StartsWith("[0:v]trim=end_frame=1,scale=1280:720:", Chain(args, input: 0));
         Assert.StartsWith("[1:v]trim=end_frame=1,scale=1280:720:", Chain(args, input: 1));
@@ -231,8 +267,12 @@ public sealed class CoverRendererTests
     {
         // A DVD or DV clip (720x480, SAR 32:27) is 16:9 on screen. Scaling its stored pixels and then calling them
         // square made a square come out 15% too thin.
-        var args = CoverRenderer.BuildArguments(
-            Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/dvd.mkv"), Video("/media/c/hdr.mkv", hdr: true) }));
+        var args = CoverRenderer.BuildArguments(Plan(new[]
+        {
+            Image("/media/a/fanart.jpg"),
+            Video("/media/b/dvd.mkv"),
+            Video("/media/c/hdr.mkv", hdr: true),
+        }));
         var graph = Graph(args);
 
         Assert.Equal(3, Regex.Matches(graph, "scale=").Count);
@@ -276,11 +316,14 @@ public sealed class CoverRendererTests
     [Fact]
     public void Image_slot_is_one_frame_that_zoompan_stretches_and_is_never_looped()
     {
-        var args = CoverRenderer.BuildArguments(Plan(new[] { Image("/media/a/fanart.jpg"), Image("/media/b/fanart.jpg") }));
+        var args = CoverRenderer.BuildArguments(
+            Plan(new[] { Image("/media/a/fanart.jpg"), Image("/media/b/fanart.jpg") }));
         var list = args.ToList();
 
         // Looping an image input froze the zoom; of all the inputs only the overlay is looped.
-        Assert.Equal(new[] { "-loop", "1", "-i", "/data/overlay.png" }, args.Skip(list.IndexOf("/data/overlay.png") - 3).Take(4));
+        Assert.Equal(
+            new[] { "-loop", "1", "-i", "/data/overlay.png" },
+            args.Skip(list.IndexOf("/data/overlay.png") - 3).Take(4));
         Assert.Equal(1, list.Take(list.IndexOf("-filter_complex")).Count(arg => arg == "-loop"));
         Assert.Equal(new[] { "-threads", "2", "-i", "/media/a/fanart.jpg" }, args.Skip(2).Take(4));
     }
@@ -288,7 +331,8 @@ public sealed class CoverRendererTests
     [Fact]
     public void Video_slot_seeks_before_its_input_and_reads_only_its_length()
     {
-        var args = CoverRenderer.BuildArguments(Plan(new[] { Video("/media/b/Film.mkv", start: 1234.5678, seconds: 1.5) }));
+        var args = CoverRenderer.BuildArguments(
+            Plan(new[] { Video("/media/b/Film.mkv", start: 1234.5678, seconds: 1.5) }));
         var list = args.ToList();
         var input = list.IndexOf("/media/b/Film.mkv");
 
@@ -301,9 +345,12 @@ public sealed class CoverRendererTests
     {
         // A clip that ends early (a file shorter than its container says) is padded with its last frame, and one
         // that runs a frame long is cut: otherwise every later fade starts in the wrong place and slots vanish.
-        var args = CoverRenderer.BuildArguments(Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/Film.mkv") }));
+        var args = CoverRenderer.BuildArguments(
+            Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/Film.mkv") }));
 
-        Assert.EndsWith(",tpad=stop_mode=clone:stop=18,trim=end_frame=18", Chain(args, input: 1).Replace("[s1]", string.Empty));
+        Assert.EndsWith(
+            ",tpad=stop_mode=clone:stop=18,trim=end_frame=18",
+            Chain(args, input: 1).Replace("[s1]", string.Empty));
     }
 
     [Fact]
@@ -315,7 +362,8 @@ public sealed class CoverRendererTests
         var images = Enumerable.Range(0, 5).Select(i => Image($"/media/{i}/fanart.jpg", slot)).ToList();
         var graph = Graph(CoverRenderer.BuildArguments(Plan(images)));
 
-        var frames = Regex.Matches(graph, @":d=(\d+):").Select(m => int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)).ToList();
+        var frames = Regex.Matches(graph, @":d=(\d+):").Select(
+            m => int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)).ToList();
         Assert.Equal(new[] { 18, 17, 18, 17, 18 }, frames);
         Assert.Equal(72, frames.Sum() - (CoverRenderer.FadeFrames * 4));
 
@@ -331,7 +379,8 @@ public sealed class CoverRendererTests
         var images = Enumerable.Range(0, 5).Select(i => Image($"/media/{i}/fanart.jpg", slot)).ToList();
         var graph = Graph(CoverRenderer.BuildArguments(Plan(images, fade: false)));
 
-        var frames = Regex.Matches(graph, @":d=(\d+):").Select(m => int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)).ToList();
+        var frames = Regex.Matches(graph, @":d=(\d+):").Select(
+            m => int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)).ToList();
         Assert.Equal(new[] { 14, 15, 14, 15, 14 }, frames);
         Assert.Equal(72, frames.Sum());
     }
@@ -356,8 +405,12 @@ public sealed class CoverRendererTests
     [Fact]
     public void Every_input_and_output_and_the_filter_graph_are_capped_at_two_threads()
     {
-        var args = CoverRenderer.BuildArguments(
-            Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/Film.mkv"), Video("/media/c/Film.mkv", hdr: true) }));
+        var args = CoverRenderer.BuildArguments(Plan(new[]
+        {
+            Image("/media/a/fanart.jpg"),
+            Video("/media/b/Film.mkv"),
+            Video("/media/c/Film.mkv", hdr: true),
+        }));
         var list = args.ToList();
 
         Assert.Equal(new[] { "-threads", "2" }, FfmpegRunner.ThreadLimit);
@@ -414,7 +467,8 @@ public sealed class CoverRendererTests
     [Fact]
     public void Another_size_and_frame_rate_reach_every_filter()
     {
-        var plan = Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/Film.mkv", seconds: 2) }) with { Width = 960, Height = 540, Fps = 24 };
+        var plan = Plan(new[] { Image("/media/a/fanart.jpg"), Video("/media/b/Film.mkv", seconds: 2) })
+            with { Width = 960, Height = 540, Fps = 24 };
         var args = CoverRenderer.BuildArguments(plan);
         var graph = Graph(args);
 
@@ -466,7 +520,8 @@ public sealed class CoverRendererTests
             "negative clip start" => Plan(new[] { Video("/media/b/Film.mkv", start: -1) }),
 
             // 0.3 s is 4 frames at 12 fps: the fade would take the whole slot.
-            "slots too short to fade" => Plan(new[] { Image("/media/a/fanart.jpg", 0.3), Image("/media/b/fanart.jpg", 0.3) }),
+            "slots too short to fade" =>
+                Plan(new[] { Image("/media/a/fanart.jpg", 0.3), Image("/media/b/fanart.jpg", 0.3) }),
             "no final paths" => Plan(good) with { AnimatedOut = string.Empty },
             "relative final path" => Plan(good) with { StillOut = "covers/ab12.jpg" },
             "relative temp folder" => Plan(good, tempFolder: "tmp"),
@@ -489,7 +544,8 @@ public sealed class CoverRendererTests
     [Fact]
     public void The_padding_byte_after_a_chunk_of_odd_size_is_stepped_over()
     {
-        // The next chunk starts one byte later than the size says; reading from the wrong place finds no frame, or noise.
+        // The next chunk starts one byte later than the size says; reading from the wrong place finds no frame, or
+        // noise.
         var (animated, milliseconds) = WebpTimeline.Read(WebpBuilder.AnimatedAfterOddChunks(83, 84, 83));
 
         Assert.True(animated);
@@ -556,7 +612,10 @@ public sealed class CoverRendererTests
     }
 }
 
-/// <summary>Builds WebP containers as libwebp writes them, with frame data that is not a picture: only the chunks the renderer reads are real.</summary>
+/// <summary>
+/// Builds WebP containers as libwebp writes them, with frame data that is not a picture: only the chunks the renderer
+/// reads are real.
+/// </summary>
 internal static class WebpBuilder
 {
     // 640x360 as the canvas: width and height minus one, 24 bits each, little endian.
@@ -565,8 +624,12 @@ internal static class WebpBuilder
     /// <summary>An animated WebP with one frame for each duration, in milliseconds.</summary>
     public static byte[] Animated(params int[] frameMilliseconds) => Animated(oddChunks: false, frameMilliseconds);
 
-    /// <summary>The same, with a colour profile of 3 bytes and metadata of 5 bytes ahead of the frames: chunks of odd size, each followed by a padding byte.</summary>
-    public static byte[] AnimatedAfterOddChunks(params int[] frameMilliseconds) => Animated(oddChunks: true, frameMilliseconds);
+    /// <summary>
+    /// The same, with a colour profile of 3 bytes and metadata of 5 bytes ahead of the frames: chunks of odd size, each
+    /// followed by a padding byte.
+    /// </summary>
+    public static byte[] AnimatedAfterOddChunks(params int[] frameMilliseconds) =>
+        Animated(oddChunks: true, frameMilliseconds);
 
     private static byte[] Animated(bool oddChunks, int[] frameMilliseconds)
     {
@@ -621,7 +684,10 @@ internal static class WebpBuilder
             case "not a webp file":
                 return Replace(valid, 8, "WAVE"u8);
             case "riff size beyond the end":
-                return Replace(valid, RiffSize, U32(BinaryPrimitives.ReadUInt32LittleEndian(valid.AsSpan(RiffSize)) + 100));
+                return Replace(
+                    valid,
+                    RiffSize,
+                    U32(BinaryPrimitives.ReadUInt32LittleEndian(valid.AsSpan(RiffSize)) + 100));
             case "chunk size beyond the end":
                 return Replace(valid, FirstFrameSize, U32((uint)valid.Length));
             case "chunk size of four billion":
@@ -756,11 +822,19 @@ public sealed class FfmpegRunnerTests : IDisposable
 
         public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.Debug || _debug;
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
             Messages.Add($"{logLevel}: {formatter(state, exception)}");
     }
 
-    private static FfmpegRunner RunnerAt(string ffmpegPath, RunnerLimits? limits = null, ILogger<FfmpegRunner>? log = null)
+    private static FfmpegRunner RunnerAt(
+        string ffmpegPath,
+        RunnerLimits? limits = null,
+        ILogger<FfmpegRunner>? log = null)
     {
         var encoder = DispatchProxy.Create<IMediaEncoder, EncoderStub>();
         ((EncoderStub)(object)encoder).EncoderPath = ffmpegPath;
@@ -772,7 +846,10 @@ public sealed class FfmpegRunnerTests : IDisposable
 
     private string Path(string name) => System.IO.Path.Combine(_root, name);
 
-    /// <summary>A shell script that behaves like ffmpeg for one test. <paramref name="body"/> runs with the arguments in <c>$@</c>.</summary>
+    /// <summary>
+    /// A shell script that behaves like ffmpeg for one test. <paramref name="body"/> runs with the arguments in
+    /// <c>$@</c>.
+    /// </summary>
     private FfmpegRunner FakeFfmpeg(string body, RunnerLimits? limits = null, ILogger<FfmpegRunner>? log = null)
     {
         var script = Path($"fake-ffmpeg-{Guid.NewGuid():N}.sh");
@@ -785,7 +862,10 @@ public sealed class FfmpegRunnerTests : IDisposable
         return RunnerAt(script, limits, log);
     }
 
-    private static RunnerLimits Limits(TimeSpan? processorTimeBudget = null, TimeSpan? frameStall = null, TimeSpan? stopGrace = null) =>
+    private static RunnerLimits Limits(
+        TimeSpan? processorTimeBudget = null,
+        TimeSpan? frameStall = null,
+        TimeSpan? stopGrace = null) =>
         RunnerLimits.Default with
         {
             ProcessorTimeBudget = processorTimeBudget ?? RunnerLimits.Default.ProcessorTimeBudget,
@@ -793,14 +873,18 @@ public sealed class FfmpegRunnerTests : IDisposable
             StopGrace = stopGrace ?? RunnerLimits.Default.StopGrace,
         };
 
-    // The shell code that finds the two output files in the arguments, as ffmpeg would: the one after -an and the last one.
-    private const string FindOutputs = "prev=''; webp=''; jpg=''; for a in \"$@\"; do if [ \"$prev\" = '-an' ]; then webp=\"$a\"; fi; prev=\"$a\"; jpg=\"$a\"; done";
+    // The shell code that finds the two output files in the arguments, as ffmpeg would: the one after -an and the last
+    // one.
+    private const string FindOutputs = "prev=''; webp=''; jpg=''; for a in \"$@\"; do if [ \"$prev\" = '-an' ]; then "
+        + "webp=\"$a\"; fi; prev=\"$a\"; jpg=\"$a\"; done";
 
     private string RecordArguments() => $"printf '%s\\n' \"$@\" > '{Path("arguments.txt")}'";
 
     private string[] RecordedArguments() => File.ReadAllLines(Path("arguments.txt"));
 
-    /// <summary>Writes a WebP with these frame durations and returns the shell code that copies it to the animated output.</summary>
+    /// <summary>
+    /// Writes a WebP with these frame durations and returns the shell code that copies it to the animated output.
+    /// </summary>
     private string CopyWebp(params int[] frameMilliseconds) => CopyWebp(WebpBuilder.Animated(frameMilliseconds));
 
     private string CopyWebp(byte[] webp)
@@ -833,7 +917,12 @@ public sealed class FfmpegRunnerTests : IDisposable
         PlanIn(tempFolder) with
         {
             Slots = Enumerable.Range(0, 3)
-                .Select(i => new SlotInput(SlotKind.Image, Path($"media/{i}.jpg"), 0, CoverRenderer.SlotSeconds(6, 3, fade: true, fps: 12), false))
+                .Select(i => new SlotInput(
+                    SlotKind.Image,
+                    Path($"media/{i}.jpg"),
+                    0,
+                    CoverRenderer.SlotSeconds(6, 3, fade: true, fps: 12),
+                    false))
                 .ToList(),
         };
 
@@ -863,13 +952,17 @@ public sealed class FfmpegRunnerTests : IDisposable
 
     private int ReadPid(string file) => int.Parse(File.ReadAllText(Path(file)).Trim(), CultureInfo.InvariantCulture);
 
-    // A pid file that is missing, empty or without its end of line was not written (yet): there is no process to look for.
+    // A pid file that is missing, empty or without its end of line was not written (yet): there is no process to look
+    // for.
     private int? TryReadPid(string file)
     {
         try
         {
             var text = File.ReadAllText(Path(file));
-            return text.EndsWith('\n') && int.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var pid) ? pid : null;
+            return text.EndsWith('\n')
+                && int.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var pid)
+                ? pid
+                : null;
         }
         catch (IOException)
         {
@@ -899,7 +992,10 @@ public sealed class FfmpegRunnerTests : IDisposable
     {
         var runner = FakeFfmpeg(RecordArguments());
 
-        var (exit, _) = await runner.RunAsync(new[] { "-loglevel", "info", "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var (exit, _) = await runner.RunAsync(
+            new[] { "-loglevel", "info", "-i", "/media/a.mkv" },
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
 
         Assert.Equal(0, exit);
 
@@ -914,7 +1010,10 @@ public sealed class FfmpegRunnerTests : IDisposable
     {
         var runner = FakeFfmpeg("echo 'first' >&2; echo 'second' >&2; exit 3");
 
-        var (exit, errors) = await runner.RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var (exit, errors) = await runner.RunAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
 
         Assert.Equal(3, exit);
         Assert.Equal("first\nsecond", errors);
@@ -925,7 +1024,10 @@ public sealed class FfmpegRunnerTests : IDisposable
     {
         var runner = FakeFfmpeg("i=1; while [ $i -le 1000 ]; do echo \"line $i\" >&2; i=$((i+1)); done; exit 1");
 
-        var (_, errors) = await runner.RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var (_, errors) = await runner.RunAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
 
         var lines = errors.Split('\n');
         Assert.True(lines.Length <= 200, $"{lines.Length} lines kept");
@@ -938,7 +1040,10 @@ public sealed class FfmpegRunnerTests : IDisposable
     {
         var runner = FakeFfmpeg("i=1; while [ $i -le 300 ]; do echo \"line $i\" >&2; i=$((i+1)); done; exit 1");
 
-        var run = await runner.RunDetailedAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var run = await runner.RunDetailedAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
 
         // The tail has dropped it by now, and it is the line that says why ffmpeg failed.
         Assert.Equal("line 1", run.FirstLine);
@@ -952,7 +1057,8 @@ public sealed class FfmpegRunnerTests : IDisposable
     public async Task Run_lowers_the_priority_of_ffmpeg_to_idle()
     {
         // The script waits a moment, so the priority has been set by the time it looks at its own.
-        var runner = FakeFfmpeg($"sleep 0.5; sed -E 's/^.*\\) //' /proc/$$/stat | cut -d' ' -f17 > '{Path("nice.txt")}'");
+        var runner = FakeFfmpeg(
+            $"sleep 0.5; sed -E 's/^.*\\) //' /proc/$$/stat | cut -d' ' -f17 > '{Path("nice.txt")}'");
 
         await runner.RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(30), CancellationToken.None);
 
@@ -966,7 +1072,10 @@ public sealed class FfmpegRunnerTests : IDisposable
         var runner = FakeFfmpeg($"echo $$ > '{Path("parent.pid")}'; sleep 120 & echo $! > '{Path("child.pid")}'; wait");
 
         var stopwatch = Stopwatch.StartNew();
-        var (exit, errors) = await runner.RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(2), CancellationToken.None);
+        var (exit, errors) = await runner.RunAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromSeconds(2),
+            CancellationToken.None);
 
         Assert.True(stopwatch.Elapsed < Patience, "The stalled ffmpeg was not stopped in time.");
         Assert.Equal(-1, exit);
@@ -986,7 +1095,10 @@ public sealed class FfmpegRunnerTests : IDisposable
         // stall limit and is never more than a sixth of it without one.
         var runner = FakeFfmpeg("i=0; while [ $i -lt 12 ]; do echo \"tick $i\" >&2; sleep 0.25; i=$((i+1)); done");
 
-        var (exit, errors) = await runner.RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromMilliseconds(1500), CancellationToken.None);
+        var (exit, errors) = await runner.RunAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromMilliseconds(1500),
+            CancellationToken.None);
 
         Assert.Equal(0, exit);
         Assert.EndsWith("tick 11", errors);
@@ -1000,7 +1112,10 @@ public sealed class FfmpegRunnerTests : IDisposable
         // it may go without the processor for a while: the limit leaves room for a gap of up to two seconds.
         var runner = FakeFfmpeg("end=$(( $(date +%s%N) + 6000000000 )); while [ $(date +%s%N) -lt $end ]; do :; done");
 
-        var (exit, _) = await runner.RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(2), CancellationToken.None);
+        var (exit, _) = await runner.RunAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromSeconds(2),
+            CancellationToken.None);
 
         Assert.Equal(0, exit);
     }
@@ -1011,9 +1126,13 @@ public sealed class FfmpegRunnerTests : IDisposable
         // It works for 2 s and then waits 2.5 s, 4.5 s in all and longer than the stall limit of 3 s, with nothing on
         // stderr. It gets through only because the 2.5 s of waiting are counted from the last time it used the
         // processor: counted from its start, 3 s of silence had passed before it ended.
-        var runner = FakeFfmpeg("end=$(( $(date +%s%N) + 2000000000 )); while [ $(date +%s%N) -lt $end ]; do :; done; sleep 2.5");
+        var runner = FakeFfmpeg(
+            "end=$(( $(date +%s%N) + 2000000000 )); while [ $(date +%s%N) -lt $end ]; do :; done; sleep 2.5");
 
-        var (exit, _) = await runner.RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(3), CancellationToken.None);
+        var (exit, _) = await runner.RunAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromSeconds(3),
+            CancellationToken.None);
 
         Assert.Equal(0, exit);
     }
@@ -1024,10 +1143,14 @@ public sealed class FfmpegRunnerTests : IDisposable
         // A spinning ffmpeg is never silent for the stall rule, because it uses the processor. It is finite here, 30 s,
         // so that a runner that ignored the budget would end the test and not leave it spinning.
         var runner = FakeFfmpeg(
-            $"echo $$ > '{Path("parent.pid")}'; end=$(( $(date +%s) + 30 )); while [ $(date +%s) -lt $end ]; do :; done",
+            $"echo $$ > '{Path("parent.pid")}'; end=$(( $(date +%s) + 30 )); "
+            + "while [ $(date +%s) -lt $end ]; do :; done",
             Limits(processorTimeBudget: TimeSpan.FromMilliseconds(300)));
 
-        var (exit, errors) = await runner.RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromMinutes(5), CancellationToken.None);
+        var (exit, errors) = await runner.RunAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromMinutes(5),
+            CancellationToken.None);
 
         Assert.Equal(-1, exit);
         Assert.Equal("ffmpeg used 0.3 seconds of processor time without finishing and was stopped.", errors);
@@ -1042,7 +1165,10 @@ public sealed class FfmpegRunnerTests : IDisposable
         // starved at idle priority on a busy host must not be stopped for it.
         var runner = FakeFfmpeg("sleep 1.5", Limits(processorTimeBudget: TimeSpan.FromMilliseconds(300)));
 
-        var (exit, _) = await runner.RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var (exit, _) = await runner.RunAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
 
         Assert.Equal(0, exit);
     }
@@ -1061,7 +1187,8 @@ public sealed class FfmpegRunnerTests : IDisposable
         using var cancel = new CancellationTokenSource();
 
         var run = runner.RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromMinutes(5), cancel.Token);
-        await WaitUntilAsync(() => File.Exists(Path("child.pid")) && File.ReadAllText(Path("child.pid")).EndsWith('\n'));
+        await WaitUntilAsync(
+            () => File.Exists(Path("child.pid")) && File.ReadAllText(Path("child.pid")).EndsWith('\n'));
         await cancel.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
@@ -1071,7 +1198,10 @@ public sealed class FfmpegRunnerTests : IDisposable
     [LinuxFact]
     public async Task Run_reports_an_ffmpeg_that_cannot_be_started_instead_of_throwing()
     {
-        var (exit, errors) = await RunnerAt(Path("no-such-ffmpeg")).RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var (exit, errors) = await RunnerAt(Path("no-such-ffmpeg")).RunAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
 
         Assert.Equal(-1, exit);
         Assert.Contains("could not be started", errors);
@@ -1080,7 +1210,10 @@ public sealed class FfmpegRunnerTests : IDisposable
     [LinuxFact]
     public async Task Run_reports_a_missing_ffmpeg_path()
     {
-        var (exit, errors) = await RunnerAt(string.Empty).RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(30), CancellationToken.None);
+        var (exit, errors) = await RunnerAt(string.Empty).RunAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
 
         Assert.Equal(-1, exit);
         Assert.Contains("no ffmpeg", errors);
@@ -1089,16 +1222,24 @@ public sealed class FfmpegRunnerTests : IDisposable
     [LinuxFact]
     public async Task Run_refuses_a_stall_limit_that_is_not_positive() =>
         await Assert.ThrowsAnyAsync<ArgumentException>(
-            () => RunnerAt(Path("whatever")).RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.Zero, CancellationToken.None));
+            () =>
+                RunnerAt(Path("whatever")).RunAsync(
+                    new[] { "-i", "/media/a.mkv" },
+                    TimeSpan.Zero,
+                    CancellationToken.None));
 
     [LinuxFact]
     public async Task Run_reads_a_flood_of_error_output_while_ffmpeg_runs()
     {
         // 8192 lines of about 70 bytes are 570 KB: nine times what a pipe holds. A runner that read only once ffmpeg
         // had ended would leave it blocked on a full pipe, showing no sign of life, and fail at the two-second limit.
-        var runner = FakeFfmpeg("yes 'a line of error output that is long enough to fill a pipe in a hurry' | head -n 8192 >&2");
+        var runner = FakeFfmpeg(
+            "yes 'a line of error output that is long enough to fill a pipe in a hurry' | head -n 8192 >&2");
 
-        var (exit, errors) = await runner.RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(2), CancellationToken.None);
+        var (exit, errors) = await runner.RunAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromSeconds(2),
+            CancellationToken.None);
 
         Assert.Equal(0, exit);
         Assert.Equal(200, errors.Split('\n').Length);
@@ -1110,12 +1251,23 @@ public sealed class FfmpegRunnerTests : IDisposable
         var quiet = new RecordingLogger(debug: false);
         var loud = new RecordingLogger(debug: true);
 
-        await FakeFfmpeg("exit 0", log: quiet).RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(30), CancellationToken.None);
-        await FakeFfmpeg("exit 0", log: loud).RunAsync(new[] { "-i", "/media/a.mkv" }, TimeSpan.FromSeconds(30), CancellationToken.None);
+        await FakeFfmpeg("exit 0", log: quiet).RunAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
+        await FakeFfmpeg("exit 0", log: loud).RunAsync(
+            new[] { "-i", "/media/a.mkv" },
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
 
         // Joining the arguments costs something on every run, so it is not done for a message nobody reads.
         Assert.DoesNotContain(quiet.Messages, message => message.Contains("running ffmpeg", StringComparison.Ordinal));
-        Assert.Contains(loud.Messages, message => message.Contains("running ffmpeg -hide_banner -nostdin -y -loglevel error -i /media/a.mkv", StringComparison.Ordinal));
+        Assert.Contains(
+            loud.Messages,
+            message =>
+                message.Contains(
+                    "running ffmpeg -hide_banner -nostdin -y -loglevel error -i /media/a.mkv",
+                    StringComparison.Ordinal));
     }
 
     [LinuxFact]
@@ -1199,12 +1351,18 @@ public sealed class FfmpegRunnerTests : IDisposable
     {
         var runner = FakeFfmpeg("exit 0");
 
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => runner.ReadFrameAsync("Film.mkv", 10, 160, CancellationToken.None));
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => runner.ReadFrameAsync("-i", 10, 160, CancellationToken.None));
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => runner.ReadFrameAsync("/media/Film.mkv", -1, 160, CancellationToken.None));
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => runner.ReadFrameAsync("/media/Film.mkv", double.NaN, 160, CancellationToken.None));
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => runner.ReadFrameAsync("/media/Film.mkv", 10, 0, CancellationToken.None));
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => runner.ReadFrameAsync("/media/Film.mkv", 10, 100000, CancellationToken.None));
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => runner.ReadFrameAsync("Film.mkv", 10, 160, CancellationToken.None));
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => runner.ReadFrameAsync("-i", 10, 160, CancellationToken.None));
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => runner.ReadFrameAsync("/media/Film.mkv", -1, 160, CancellationToken.None));
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => runner.ReadFrameAsync("/media/Film.mkv", double.NaN, 160, CancellationToken.None));
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => runner.ReadFrameAsync("/media/Film.mkv", 10, 0, CancellationToken.None));
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => runner.ReadFrameAsync("/media/Film.mkv", 10, 100000, CancellationToken.None));
     }
 
     [LinuxFact]
@@ -1246,7 +1404,8 @@ public sealed class FfmpegRunnerTests : IDisposable
     public async Task Render_passes_a_cover_whose_length_is_the_planned_one_to_the_frame()
     {
         // 18 frames of 12 fps are 1500 ms; one frame is 83.3 ms. 1583 is within one frame, and 1584 is not.
-        foreach (var (milliseconds, passes) in new[] { (1500, true), (1417, true), (1583, true), (1584, false), (1416, false) })
+        var cases = new[] { (1500, true), (1417, true), (1583, true), (1584, false), (1416, false) };
+        foreach (var (milliseconds, passes) in cases)
         {
             var plan = PlanIn(Path($"tmp-{milliseconds}")) with
             {
@@ -1262,7 +1421,8 @@ public sealed class FfmpegRunnerTests : IDisposable
             }
             else
             {
-                await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
+                await Assert.ThrowsAsync<CoverRenderException>(
+                    () => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
                 Assert.False(File.Exists(plan.AnimatedOut), $"{milliseconds} ms should not pass");
             }
         }
@@ -1271,28 +1431,45 @@ public sealed class FfmpegRunnerTests : IDisposable
     [LinuxFact]
     public async Task Render_adds_up_the_planned_length_of_slots_that_fade_into_one_another()
     {
-        // Three slots of 27, 26 and 27 frames fade for four frames twice: 72 frames, 6000 ms, not the 80 frames of the slots.
+        // Three slots of 27, 26 and 27 frames fade for four frames twice: 72 frames, 6000 ms, not the 80 frames of the
+        // slots.
         var passing = ThreeSlotsIn(Path("tmp"));
-        await CoverRenderer.RenderAsync(FakeFfmpeg(Writes(CopyWebp(Enumerable.Repeat(83, 72).ToArray()))), passing, CancellationToken.None);
+        await CoverRenderer.RenderAsync(
+            FakeFfmpeg(Writes(CopyWebp(Enumerable.Repeat(83, 72).ToArray()))),
+            passing,
+            CancellationToken.None);
         Assert.True(File.Exists(passing.AnimatedOut));
 
-        var tooLong = ThreeSlotsIn(Path("tmp")) with { AnimatedOut = Path("covers/long.webp"), StillOut = Path("covers/long.jpg") };
+        var tooLong = ThreeSlotsIn(Path("tmp")) with
+        {
+            AnimatedOut = Path("covers/long.webp"),
+            StillOut = Path("covers/long.jpg"),
+        };
         var failure = await Assert.ThrowsAsync<CoverRenderException>(
-            () => CoverRenderer.RenderAsync(FakeFfmpeg(Writes(CopyWebp(Enumerable.Repeat(83, 80).ToArray()))), tooLong, CancellationToken.None));
+            () =>
+                CoverRenderer.RenderAsync(
+                    FakeFfmpeg(Writes(CopyWebp(Enumerable.Repeat(83, 80).ToArray()))),
+                    tooLong,
+                    CancellationToken.None));
         Assert.Contains("6.6 s long instead of 6 s", failure.Message);
     }
 
     [LinuxFact]
     public async Task Render_refuses_a_cover_that_came_out_shorter_than_planned_and_publishes_nothing()
     {
-        // What a clip that starts past the end of its file leaves: ffmpeg exits 0 with no message, and the slots after it are gone.
+        // What a clip that starts past the end of its file leaves: ffmpeg exits 0 with no message, and the slots after
+        // it are gone.
         var temp = Path("tmp");
         var plan = ThreeSlotsIn(temp);
-        var runner = FakeFfmpeg(Writes(CopyWebp(Enumerable.Repeat(83, 28).ToArray())) + "; echo 'File ended prematurely' >&2");
+        var runner = FakeFfmpeg(
+            Writes(CopyWebp(Enumerable.Repeat(83, 28).ToArray())) + "; echo 'File ended prematurely' >&2");
 
-        var failure = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
+        var failure = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
 
-        Assert.Equal("The cover came out 2.3 s long instead of 6 s: a clip gave fewer frames than planned.", failure.Message);
+        Assert.Equal(
+            "The cover came out 2.3 s long instead of 6 s: a clip gave fewer frames than planned.",
+            failure.Message);
         Assert.Equal(0, failure.ExitCode);
         Assert.Equal("File ended prematurely", failure.Errors);
         Assert.False(File.Exists(plan.AnimatedOut));
@@ -1308,9 +1485,12 @@ public sealed class FfmpegRunnerTests : IDisposable
         var plan = ThreeSlotsIn(temp);
         var runner = FakeFfmpeg(Writes(CopyWebp(Enumerable.Repeat(83, 315).ToArray())));
 
-        var failure = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
+        var failure = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
 
-        Assert.Equal("The cover came out 26.1 s long instead of 6 s: a picture or clip gave more frames than planned.", failure.Message);
+        Assert.Equal(
+            "The cover came out 26.1 s long instead of 6 s: a picture or clip gave more frames than planned.",
+            failure.Message);
         Assert.False(File.Exists(plan.AnimatedOut));
         Assert.False(File.Exists(plan.StillOut));
         Assert.Empty(Directory.GetFileSystemEntries(temp));
@@ -1326,14 +1506,16 @@ public sealed class FfmpegRunnerTests : IDisposable
     [InlineData("frame chunk too small")]
     [InlineData("cut in the middle of a frame")]
     [InlineData("no image at all")]
-    public async Task Render_refuses_a_webp_that_cannot_be_read_with_a_render_exception_and_publishes_nothing(string problem)
+    public async Task Render_refuses_a_webp_that_cannot_be_read_with_a_render_exception_and_publishes_nothing(
+        string problem)
     {
         // Whatever ffmpeg left in the file, the failure is a CoverRenderException: never another type.
         var temp = Path("tmp");
         var plan = PlanIn(temp);
         var runner = FakeFfmpeg(Writes(CopyWebp(WebpBuilder.Damaged(problem))));
 
-        var failure = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
+        var failure = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
 
         Assert.StartsWith("ffmpeg wrote an animated WebP that cannot be used: it ", failure.Message);
         Assert.IsType<InvalidDataException>(failure.InnerException);
@@ -1345,8 +1527,8 @@ public sealed class FfmpegRunnerTests : IDisposable
     [LinuxFact]
     public async Task Render_accepts_a_still_webp_for_a_single_picture()
     {
-        // The name-only cover is one flat colour: its frames are all the same, so libwebp writes one still image. Measured
-        // with jellyfin-ffmpeg 8.1.3: a single VP8 chunk of 2876 bytes, no ANMF, no timeline to check.
+        // The name-only cover is one flat colour: its frames are all the same, so libwebp writes one still image.
+        // Measured with jellyfin-ffmpeg 8.1.3: a single VP8 chunk of 2876 bytes, no ANMF, no timeline to check.
         var plan = PlanIn(Path("tmp"));
         var runner = FakeFfmpeg(Writes(CopyWebp(WebpBuilder.Still())));
 
@@ -1359,14 +1541,19 @@ public sealed class FfmpegRunnerTests : IDisposable
     [LinuxFact]
     public async Task Render_refuses_a_still_webp_for_several_slots()
     {
-        // Several slots that all come out the same, or all but one gone: either way it is not the cover that was asked for.
+        // Several slots that all come out the same, or all but one gone: either way it is not the cover that was asked
+        // for.
         var temp = Path("tmp");
         var plan = ThreeSlotsIn(temp);
         var runner = FakeFfmpeg(Writes(CopyWebp(WebpBuilder.Still())));
 
-        var failure = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
+        var failure = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
 
-        Assert.Equal("The cover came out as a still picture instead of an animation: all but one slot gave no frames, or every frame was the same.", failure.Message);
+        Assert.Equal(
+            "The cover came out as a still picture instead of an animation: all but one slot gave no frames, or every "
+            + "frame was the same.",
+            failure.Message);
         Assert.False(File.Exists(plan.AnimatedOut));
         Assert.Empty(Directory.GetFileSystemEntries(temp));
     }
@@ -1376,7 +1563,8 @@ public sealed class FfmpegRunnerTests : IDisposable
     [InlineData("a file at the still path")]
     [InlineData("a folder at the animated path")]
     [InlineData("a folder at the still path")]
-    public async Task Render_refuses_final_paths_that_already_exist_before_anything_is_created_or_started(string existing)
+    public async Task Render_refuses_final_paths_that_already_exist_before_anything_is_created_or_started(
+        string existing)
     {
         // A cover is both its files or neither. With a file already there, a failure to move the second one could not
         // be undone: the first would have replaced a cover's file and the second would be missing.
@@ -1395,7 +1583,8 @@ public sealed class FfmpegRunnerTests : IDisposable
 
         var runner = FakeFfmpeg(RecordArguments());
 
-        var refused = await Assert.ThrowsAsync<ArgumentException>(() => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
+        var refused = await Assert.ThrowsAsync<ArgumentException>(
+            () => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
 
         Assert.Contains(occupied, refused.Message);
         Assert.Contains("already exists", refused.Message);
@@ -1415,9 +1604,12 @@ public sealed class FfmpegRunnerTests : IDisposable
         var plan = PlanIn(temp);
 
         // Someone puts a file where the still has to go while ffmpeg runs: the animated file has already moved by then.
-        var runner = FakeFfmpeg($"{Writes(CopyWebp(OnTime))}; mkdir -p '{System.IO.Path.GetDirectoryName(plan.StillOut)}'; printf 'somebody else' > '{plan.StillOut}'");
+        var runner = FakeFfmpeg(
+            $"{Writes(CopyWebp(OnTime))}; mkdir -p '{System.IO.Path.GetDirectoryName(plan.StillOut)}'; printf "
+            + $"'somebody else' > '{plan.StillOut}'");
 
-        var failure = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
+        var failure = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
 
         Assert.Contains("could not be stored", failure.Message);
         Assert.IsAssignableFrom<IOException>(failure.InnerException);
@@ -1434,9 +1626,12 @@ public sealed class FfmpegRunnerTests : IDisposable
 
         // Someone puts a file where the animated WebP has to go while ffmpeg runs: nothing of ours was placed there,
         // so there is nothing to take away again, and the file is theirs.
-        var runner = FakeFfmpeg($"{Writes(CopyWebp(OnTime))}; mkdir -p '{System.IO.Path.GetDirectoryName(plan.AnimatedOut)}'; printf 'somebody else' > '{plan.AnimatedOut}'");
+        var runner = FakeFfmpeg(
+            $"{Writes(CopyWebp(OnTime))}; mkdir -p '{System.IO.Path.GetDirectoryName(plan.AnimatedOut)}'; printf "
+            + $"'somebody else' > '{plan.AnimatedOut}'");
 
-        var failure = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
+        var failure = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
 
         Assert.Contains("could not be stored", failure.Message);
         Assert.Equal("somebody else", File.ReadAllText(plan.AnimatedOut));
@@ -1451,7 +1646,8 @@ public sealed class FfmpegRunnerTests : IDisposable
         var plan = PlanIn(Path("blocker/tmp"));
         var runner = FakeFfmpeg(RecordArguments());
 
-        var failure = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
+        var failure = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
 
         Assert.StartsWith("The folder for the render in progress could not be created: ", failure.Message);
         Assert.DoesNotContain("stored", failure.Message);
@@ -1465,10 +1661,12 @@ public sealed class FfmpegRunnerTests : IDisposable
     {
         var temp = Path("tmp");
         var runner = FakeFfmpeg(
-            $"{FindOutputs}; printf 'RIFFhalf' > \"$webp\"; i=1; while [ $i -le 30 ]; do echo \"error line $i\" >&2; i=$((i+1)); done; exit 1");
+            $"{FindOutputs}; printf 'RIFFhalf' > \"$webp\"; i=1; while [ $i -le 30 ]; do echo \"error line $i\" >&2; "
+            + "i=$((i+1)); done; exit 1");
         var plan = PlanIn(temp);
 
-        var failure = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
+        var failure = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
 
         Assert.Equal(1, failure.ExitCode);
         Assert.Equal(string.Join('\n', Enumerable.Range(11, 20).Select(n => $"error line {n}")), failure.Errors);
@@ -1482,11 +1680,16 @@ public sealed class FfmpegRunnerTests : IDisposable
     public async Task The_reason_is_the_first_line_even_when_more_than_200_lines_followed_it()
     {
         // The runner keeps the last 200 lines; the line that says why is the first of them all.
-        var runner = FakeFfmpeg("echo '[in#0 @ 0x55d0c0] Error opening input: No such file or directory' >&2; i=1; while [ $i -le 400 ]; do echo \"consequence $i\" >&2; i=$((i+1)); done; exit 254");
+        var runner = FakeFfmpeg(
+            "echo '[in#0 @ 0x55d0c0] Error opening input: No such file or directory' >&2; i=1; while [ $i -le 400 ]; "
+            + "do echo \"consequence $i\" >&2; i=$((i+1)); done; exit 254");
 
-        var failure = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(runner, PlanIn(Path("tmp")), CancellationToken.None));
+        var failure = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(runner, PlanIn(Path("tmp")), CancellationToken.None));
 
-        Assert.Equal("ffmpeg failed with exit code 254: Error opening input: No such file or directory", failure.Message);
+        Assert.Equal(
+            "ffmpeg failed with exit code 254: Error opening input: No such file or directory",
+            failure.Message);
         Assert.Equal(string.Join('\n', Enumerable.Range(381, 20).Select(n => $"consequence {n}")), failure.Errors);
     }
 
@@ -1500,14 +1703,21 @@ public sealed class FfmpegRunnerTests : IDisposable
             + "echo 'Error opening input file /media/x.jpg.' >&2; "
             + "echo 'Error opening input files: No such file or directory' >&2; exit 254");
         var damaged = FakeFfmpeg(
-            "echo '[vist#1:0/mjpeg @ 0x788d44ab9480] [dec:mjpeg @ 0x788d44a0ec80] Error submitting packet to decoder: Invalid data found when processing input' >&2; "
-            + "echo '[out#1/image2 @ 0x788d44a77640] Nothing was written into output file, because at least one of its streams received no packets.' >&2; exit 69");
+            "echo '[vist#1:0/mjpeg @ 0x788d44ab9480] [dec:mjpeg @ 0x788d44a0ec80] Error submitting packet to decoder: "
+            + "Invalid data found when processing input' >&2; "
+            + "echo '[out#1/image2 @ 0x788d44a77640] Nothing was written into output file, because at least one of its "
+            + "streams received no packets.' >&2; exit 69");
 
-        var first = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(missing, PlanIn(Path("tmp")), CancellationToken.None));
-        var second = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(damaged, PlanIn(Path("tmp")), CancellationToken.None));
+        var first = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(missing, PlanIn(Path("tmp")), CancellationToken.None));
+        var second = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(damaged, PlanIn(Path("tmp")), CancellationToken.None));
 
         Assert.Equal("ffmpeg failed with exit code 254: Error opening input: No such file or directory", first.Message);
-        Assert.Equal("ffmpeg failed with exit code 69: Error submitting packet to decoder: Invalid data found when processing input", second.Message);
+        Assert.Equal(
+            "ffmpeg failed with exit code 69: Error submitting packet to decoder: Invalid data found when processing "
+            + "input",
+            second.Message);
 
         // The lines themselves are kept as ffmpeg wrote them.
         Assert.StartsWith("[in#1 @ 0x7bcac740e280] Error opening input", first.Errors);
@@ -1520,7 +1730,8 @@ public sealed class FfmpegRunnerTests : IDisposable
         var temp = Path("tmp");
         var plan = PlanIn(temp);
 
-        var failure = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(FakeFfmpeg("exit 0"), plan, CancellationToken.None));
+        var failure = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(FakeFfmpeg("exit 0"), plan, CancellationToken.None));
 
         Assert.Contains("did not write", failure.Message);
         Assert.False(File.Exists(plan.AnimatedOut));
@@ -1534,7 +1745,8 @@ public sealed class FfmpegRunnerTests : IDisposable
         var runner = FakeFfmpeg($"{FindOutputs}; {CopyWebp(OnTime)}; : > \"$jpg\"");
         var plan = PlanIn(temp);
 
-        var failure = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
+        var failure = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
 
         Assert.Contains("empty", failure.Message);
         Assert.False(File.Exists(plan.AnimatedOut));
@@ -1559,15 +1771,19 @@ public sealed class FfmpegRunnerTests : IDisposable
     {
         var plan = PlanIn(Path("tmp"));
 
-        // It said something before it was stopped: the reason is what the runner says about stopping it, which comes last.
+        // It said something before it was stopped: the reason is what the runner says about stopping it, which comes
+        // last.
         var runner = FakeFfmpeg(
             "echo 'Stream mapping:' >&2; end=$(( $(date +%s) + 30 )); while [ $(date +%s) -lt $end ]; do :; done",
             Limits(processorTimeBudget: TimeSpan.FromMilliseconds(300)));
 
-        var failure = await Assert.ThrowsAsync<CoverRenderException>(() => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
+        var failure = await Assert.ThrowsAsync<CoverRenderException>(
+            () => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
 
         Assert.Equal("ffmpeg used 0.3 seconds of processor time without finishing and was stopped.", failure.Message);
-        Assert.Equal("Stream mapping:\nffmpeg used 0.3 seconds of processor time without finishing and was stopped.", failure.Errors);
+        Assert.Equal(
+            "Stream mapping:\nffmpeg used 0.3 seconds of processor time without finishing and was stopped.",
+            failure.Errors);
         Assert.Equal(FfmpegRunner.NotCompleted, failure.ExitCode);
         Assert.False(File.Exists(plan.AnimatedOut));
     }
@@ -1576,12 +1792,14 @@ public sealed class FfmpegRunnerTests : IDisposable
     public async Task Cancelled_render_stops_ffmpeg_and_removes_its_half_written_files()
     {
         var temp = Path("tmp");
-        var runner = FakeFfmpeg($"{FindOutputs}; printf 'RIFFhalf' > \"$webp\"; echo $$ > '{Path("parent.pid")}'; sleep 120 & wait");
+        var runner = FakeFfmpeg(
+            $"{FindOutputs}; printf 'RIFFhalf' > \"$webp\"; echo $$ > '{Path("parent.pid")}'; sleep 120 & wait");
         var plan = PlanIn(temp);
         using var cancel = new CancellationTokenSource();
 
         var render = CoverRenderer.RenderAsync(runner, plan, cancel.Token);
-        await WaitUntilAsync(() => File.Exists(Path("parent.pid")) && File.ReadAllText(Path("parent.pid")).EndsWith('\n'));
+        await WaitUntilAsync(
+            () => File.Exists(Path("parent.pid")) && File.ReadAllText(Path("parent.pid")).EndsWith('\n'));
         await cancel.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => render);
@@ -1597,7 +1815,8 @@ public sealed class FfmpegRunnerTests : IDisposable
         var runner = FakeFfmpeg(RecordArguments());
         var plan = PlanIn(temp) with { Slots = Array.Empty<SlotInput>() };
 
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
+        await Assert.ThrowsAnyAsync<ArgumentException>(
+            () => CoverRenderer.RenderAsync(runner, plan, CancellationToken.None));
 
         Assert.False(Directory.Exists(temp));
         Assert.False(File.Exists(Path("arguments.txt")));

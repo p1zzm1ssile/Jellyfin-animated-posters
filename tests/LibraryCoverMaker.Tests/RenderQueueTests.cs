@@ -590,7 +590,53 @@ public sealed class RenderQueueTests : IDisposable
     }
 
     [Fact]
-    public async Task Manual_request_replaces_a_waiting_job_of_the_same_library()
+    public void A_manual_build_is_refused_by_Enqueue()
+    {
+        var queue = Start((_, _, _) => Task.FromResult(Ok()));
+
+        var refused = Assert.Throws<ArgumentOutOfRangeException>(() => queue.Enqueue(A, BuildReason.Manual));
+
+        Assert.Equal("reason", refused.ParamName);
+    }
+
+    [Fact]
+    public async Task A_manual_build_goes_first_and_the_audience_change_held_for_playback_still_runs()
+    {
+        var playing = true;
+        var built = new List<BuildReason>();
+        var queue = Start(
+            (_, reason, _) =>
+            {
+                lock (built)
+                {
+                    built.Add(reason);
+                }
+
+                return Task.FromResult(Ok());
+            },
+            () => Volatile.Read(ref playing));
+        queue.Enqueue(A, BuildReason.AudienceChanged);
+        await Task.Delay(100);
+
+        // On a pinned library the manual build changes nothing, so the audience change must not be dropped for it.
+        var manual = await queue.RunNowAsync(A, BuildReason.Manual, CancellationToken.None).WaitAsync(Patience);
+        Assert.True(manual.Applied);
+        lock (built)
+        {
+            Assert.Equal(new[] { BuildReason.Manual }, built);
+        }
+
+        Volatile.Write(ref playing, false);
+        await Until(() => { lock (built) { return built.Count == 2; } });
+        await Task.Delay(150);
+        lock (built)
+        {
+            Assert.Equal(new[] { BuildReason.Manual, BuildReason.AudienceChanged }, built);
+        }
+    }
+
+    [Fact]
+    public async Task Audience_change_upgrades_a_waiting_scheduled_job()
     {
         var gate = new TaskCompletionSource();
         var started = new TaskCompletionSource();
@@ -614,19 +660,21 @@ public sealed class RenderQueueTests : IDisposable
         await started.Task.WaitAsync(Patience);
         queue.Enqueue(A, BuildReason.Scheduled);
 
-        queue.Enqueue(A, BuildReason.Manual);
+        // A pinned or manual library ignores a Scheduled build, so the audience change must not be lost behind it.
+        queue.Enqueue(A, BuildReason.AudienceChanged);
+        queue.Enqueue(A, BuildReason.Scheduled);
         gate.SetResult();
 
         await Until(() => { lock (built) { return built.Count >= 2; } });
         await Task.Delay(150);
         lock (built)
         {
-            Assert.Equal(new[] { (B, BuildReason.Scheduled), (A, BuildReason.Manual) }, built);
+            Assert.Equal(new[] { (B, BuildReason.Scheduled), (A, BuildReason.AudienceChanged) }, built);
         }
     }
 
     [Fact]
-    public async Task Manual_request_replaces_a_job_held_back_for_playback()
+    public async Task Audience_change_upgrades_a_scheduled_job_held_back_for_playback()
     {
         var playing = true;
         var built = new List<BuildReason>();
@@ -644,14 +692,14 @@ public sealed class RenderQueueTests : IDisposable
         queue.Enqueue(A, BuildReason.Scheduled);
         await Task.Delay(100);
 
-        queue.Enqueue(A, BuildReason.Manual);
-        await Until(() => { lock (built) { return built.Count == 1; } });
+        queue.Enqueue(A, BuildReason.AudienceChanged);
         Volatile.Write(ref playing, false);
+        await Until(() => { lock (built) { return built.Count == 1; } });
         await Task.Delay(150);
 
         lock (built)
         {
-            Assert.Equal(new[] { BuildReason.Manual }, built);
+            Assert.Equal(new[] { BuildReason.AudienceChanged }, built);
         }
     }
 
@@ -729,6 +777,134 @@ public sealed class RenderQueueTests : IDisposable
         scheduler.CheckNow();
         await Settle(3);
         Assert.Equal(2, attempts);
+    }
+
+    [Fact]
+    public async Task Audit_queues_every_library_whose_cover_breaks_the_rule_pinned_and_manual_included()
+    {
+        var now = new DateTimeOffset(2026, 10, 16, 12, 0, 0, TimeSpan.Zero);
+        var pinned = Guid.NewGuid();
+        var manual = Guid.NewGuid();
+        var fine = Guid.NewGuid();
+        _store.Update(pinned, s => s.Pinned = true);
+        _store.Update(manual, s => s.Mode = CoverMode.Manual);
+        _store.Update(fine, s => s.Pinned = true);
+        var built = new List<(Guid Id, BuildReason Reason)>();
+        var queue = Start((id, reason, _) =>
+        {
+            lock (built)
+            {
+                built.Add((id, reason));
+            }
+
+            return Task.FromResult(Ok());
+        });
+        var scheduler = new RenewalScheduler(
+            () => new[] { pinned, manual, fine },
+            () => CoverMode.Art,
+            _store,
+            queue,
+            () => now,
+            NullLogger<RenewalScheduler>.Instance,
+            (id, _) => id != fine);
+
+        scheduler.CheckNow();
+
+        await Until(() => { lock (built) { return built.Count >= 2; } });
+        await Task.Delay(100);
+        lock (built)
+        {
+            Assert.Equal(new[] { (pinned, BuildReason.AudienceChanged), (manual, BuildReason.AudienceChanged) }, built);
+        }
+    }
+
+    [Fact]
+    public async Task Audit_tries_again_after_an_hour_not_after_the_renewal_pause()
+    {
+        var now = new DateTimeOffset(2026, 10, 16, 12, 0, 0, TimeSpan.Zero);
+        var failing = Guid.NewGuid();
+        var marker = Guid.NewGuid();
+        _store.Update(failing, s => { s.Pinned = true; s.RenewEveryDays = 1; });
+        var attempts = 0;
+        var markerRuns = 0;
+        var queue = Start((id, _, _) =>
+        {
+            if (id == marker)
+            {
+                Interlocked.Increment(ref markerRuns);
+                return Task.FromResult(Ok());
+            }
+
+            Interlocked.Increment(ref attempts);
+            return Task.FromResult(new BuildResult(false, "ffmpeg exited with code 1", 0));
+        });
+        var breaks = true;
+        var scheduler = new RenewalScheduler(
+            () => new[] { failing }, () => CoverMode.Art, _store, queue, () => now,
+            NullLogger<RenewalScheduler>.Instance, (_, _) => breaks);
+
+        async Task Settle(int markers)
+        {
+            queue.Enqueue(marker, BuildReason.Scheduled);
+            await Until(() => Volatile.Read(ref markerRuns) == markers);
+        }
+
+        scheduler.CheckNow();
+        await Settle(1);
+        Assert.Equal(1, attempts);
+
+        // The next check, 15 minutes later: the audit's own pause holds.
+        now = now.AddMinutes(15);
+        scheduler.CheckNow();
+        await Settle(2);
+        Assert.Equal(1, attempts);
+
+        // An hour after the first: tried again, although a failed renewal would wait six hours.
+        now = now.AddMinutes(46);
+        scheduler.CheckNow();
+        await Settle(3);
+        Assert.Equal(2, attempts);
+
+        // Once the cover keeps the rule, the pause is forgotten: a new break is queued at the next check.
+        breaks = false;
+        now = now.AddMinutes(15);
+        scheduler.CheckNow();
+        breaks = true;
+        now = now.AddMinutes(15);
+        scheduler.CheckNow();
+        await Settle(4);
+        Assert.Equal(3, attempts);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void Audit_leaves_out_a_library_that_is_switched_off(bool enabled, bool queued)
+    {
+        var library = Guid.NewGuid();
+        var gone = Guid.NewGuid();
+        var cover = new CoverRecord { Id = Guid.NewGuid(), Origin = CoverOrigin.Generated, TitleIds = [gone] };
+        var state = new LibraryCoverState { LibraryId = library, History = [cover], CurrentCoverId = cover.Id };
+        var libraries = SceneFinderTests.Stub<MediaBrowser.Controller.Library.ILibraryManager>(new()
+        {
+            ["GetItemById"] = args => (Guid)args[0]! == library
+                ? new MediaBrowser.Controller.Entities.CollectionFolder { Id = library }
+                : null,
+            ["GetLibraryOptions"] = _ => new MediaBrowser.Model.Configuration.LibraryOptions { Enabled = enabled },
+        });
+        var users = SceneFinderTests.Stub<MediaBrowser.Controller.Library.IUserManager>(new()
+        {
+            ["GetUsers"] = _ => Array.Empty<Jellyfin.Database.Implementations.Entities.User>(),
+        });
+
+        // The cover shows a title that left the library: it breaks the rule, but a switched-off library is never built.
+        var breaks = RenewalScheduler.BreaksRuleNow(
+            libraries,
+            new Jellyfin.Plugin.LibraryCoverMaker.Selection.LibraryAudience(users),
+            library,
+            state);
+
+        Assert.Equal(queued, breaks);
     }
 
     private sealed class Paths(string root) : IApplicationPaths

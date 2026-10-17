@@ -37,8 +37,8 @@ namespace Jellyfin.Plugin.LibraryCoverMaker.Covers;
 /// written to the database, which is what raises the event.
 /// </para>
 /// <para>
-/// For the watcher of <c>ItemUpdated</c> (Task 10): the event is raised synchronously from the database write, on the
-/// thread of the apply, while that library's gate in the store is held. So the watcher checks
+/// For the watcher of <c>ItemUpdated</c> (<c>PrimaryImageWatcher</c>): the event is raised synchronously from the
+/// database write, on the thread of the apply, while that library's gate in the store is held. So the watcher checks
 /// <see cref="IsApplying"/> first, ignores the event when it is true, and never calls <see cref="CoverStore.Update"/>
 /// or <see cref="CoverStore.UpdateAsync"/> from inside the event handler before that check: the gate would never be
 /// free. When the watcher records an Edit images upload as an Uploaded cover, it also sets
@@ -55,6 +55,14 @@ namespace Jellyfin.Plugin.LibraryCoverMaker.Covers;
 /// </remarks>
 public sealed class CoverApplier
 {
+    /// <summary>
+    /// How far the modification time of a library's Primary image may be from the one recorded when the plugin
+    /// applied it, and still be that image. Jellyfin keeps the time in its database, and a round trip through it must
+    /// not make the plugin's own image look changed; an upload at the same path writes a new file, far more than this
+    /// later. The watcher of Edit images uploads and the image filter compare with it alike.
+    /// </summary>
+    internal static readonly TimeSpan AppliedTimeTolerance = TimeSpan.FromSeconds(1);
+
     // Reapplies run one at a time, across all appliers: two switches in a row must not interleave per library.
     private static readonly SemaphoreSlim ReapplyGate = new(1, 1);
 
@@ -281,9 +289,11 @@ public sealed class CoverApplier
 
     /// <summary>
     /// Puts <paramref name="record"/> at the front of the library's history and drops the oldest covers beyond the
-    /// configured history size, like <see cref="CoverStore.AddToHistory"/>, but deletes no file: it returns the dropped
-    /// covers that are no longer in use, whose files <see cref="DeleteCovers"/> removes once the state was saved. So a
-    /// save that fails never leaves a state that lists covers whose files are gone. Changes only the given state.
+    /// configured history size, at least the cover just added being kept, and deletes no file: it returns the dropped
+    /// covers that are no longer in use (the current cover, the original, or still listed), whose files
+    /// <see cref="DeleteCovers"/> removes once the state was saved. So a save that fails never leaves a state that
+    /// lists covers whose files are gone. The original is not part of the history, so it is never dropped. Changes only
+    /// the given state.
     /// </summary>
     public IReadOnlyList<Guid> AddToHistory(LibraryCoverState state, CoverRecord record)
     {

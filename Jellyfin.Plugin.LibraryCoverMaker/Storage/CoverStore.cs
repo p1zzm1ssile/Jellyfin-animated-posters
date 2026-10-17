@@ -34,8 +34,7 @@ namespace Jellyfin.Plugin.LibraryCoverMaker.Storage;
 /// <para>
 /// Apart from the semaphores, one short lock covers the files: <see cref="Load"/>, <see cref="Save"/> and
 /// <see cref="Forget"/> hold it while they read, write or delete, and never across an await. Forget does not wait
-/// for an update in flight. <see cref="AddToHistory"/> changes only the state it is given and deletes cover
-/// files; it, <see cref="KnownLibraries"/> and the path members take no lock.
+/// for an update in flight. <see cref="KnownLibraries"/> and the path members take no lock.
 /// </para>
 /// </remarks>
 public class CoverStore
@@ -102,7 +101,8 @@ public class CoverStore
                     ?? throw new JsonException("The file holds no state.");
                 if (!IsComplete(state))
                 {
-                    throw new JsonException($"The file does not hold exactly {LibraryCoverState.MaxSlots} slots and lists without gaps.");
+                    throw new JsonException(
+                        $"The file does not hold exactly {LibraryCoverState.MaxSlots} slots and lists without gaps.");
                 }
 
                 // The folder says which library this is, whatever the file says.
@@ -117,7 +117,8 @@ public class CoverStore
                 File.Copy(path, copy, overwrite: true);
                 _log.LogWarning(
                     ex,
-                    "Library Cover Maker: could not read {Path}, so a copy was kept as {Copy} and library {LibraryId} starts from the defaults, pinned so that its cover is kept",
+                    "Library Cover Maker: could not read {Path}, so a copy was kept as {Copy} and library {LibraryId} "
+                    + "starts from the defaults, pinned so that its cover is kept",
                     path,
                     copy,
                     libraryId);
@@ -150,7 +151,9 @@ public class CoverStore
 
         if (!IsComplete(state))
         {
-            throw new ArgumentException($"A state needs exactly {LibraryCoverState.MaxSlots} slots and lists without gaps.", nameof(state));
+            throw new ArgumentException(
+                $"A state needs exactly {LibraryCoverState.MaxSlots} slots and lists without gaps.",
+                nameof(state));
         }
 
         var json = JsonSerializer.SerializeToUtf8Bytes(state, JsonOptions);
@@ -186,7 +189,10 @@ public class CoverStore
     /// code: it blocks the thread while it waits for its turn, so asynchronous code should use
     /// <see cref="UpdateAsync"/>. See the class remarks.
     /// </summary>
-    public LibraryCoverState Update(Guid libraryId, Action<LibraryCoverState> change, CoverMode defaultMode = CoverMode.Art)
+    public LibraryCoverState Update(
+        Guid libraryId,
+        Action<LibraryCoverState> change,
+        CoverMode defaultMode = CoverMode.Art)
     {
         ArgumentNullException.ThrowIfNull(change);
 
@@ -237,38 +243,6 @@ public class CoverStore
         }
     }
 
-    /// <summary>
-    /// Puts a cover at the front of the history, replacing the entry that has the same id if there is one, and drops
-    /// the oldest ones beyond <paramref name="historySize"/>, at least the cover just added being kept. A dropped
-    /// cover's files are deleted unless the cover is still in use: listed in the history, the original, or the
-    /// current cover. The original is not part of the history, so it is never dropped. Only the given state
-    /// changes: the caller saves it.
-    /// </summary>
-    public void AddToHistory(LibraryCoverState state, CoverRecord record, int historySize)
-    {
-        ArgumentNullException.ThrowIfNull(state);
-        ArgumentNullException.ThrowIfNull(record);
-
-        state.History.RemoveAll(listed => listed.Id == record.Id);
-        state.History.Insert(0, record);
-
-        var keep = Math.Max(historySize, 1);
-        if (state.History.Count <= keep)
-        {
-            return;
-        }
-
-        var dropped = state.History.GetRange(keep, state.History.Count - keep);
-        state.History.RemoveRange(keep, dropped.Count);
-        foreach (var cover in dropped)
-        {
-            if (!IsInUse(state, cover.Id))
-            {
-                DeleteCoverFiles(state.LibraryId, cover.Id);
-            }
-        }
-    }
-
     /// <summary>The libraries that have a folder in the store, whether or not they still exist in Jellyfin.</summary>
     public IReadOnlyList<Guid> KnownLibraries()
     {
@@ -287,7 +261,9 @@ public class CoverStore
         return known;
     }
 
-    /// <summary>Removes everything stored for a library, such as one that no longer exists. Does nothing when there is nothing.</summary>
+    /// <summary>
+    /// Removes everything stored for a library, such as one that no longer exists. Does nothing when there is nothing.
+    /// </summary>
     public void Forget(Guid libraryId)
     {
         var folder = LibraryFolder(libraryId);
@@ -302,7 +278,10 @@ public class CoverStore
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                _log.LogWarning(ex, "Library Cover Maker: could not remove the stored covers of library {LibraryId}", libraryId);
+                _log.LogWarning(
+                    ex,
+                    "Library Cover Maker: could not remove the stored covers of library {LibraryId}",
+                    libraryId);
             }
         }
     }
@@ -315,26 +294,15 @@ public class CoverStore
         && state.History is { } history
         && history.TrueForAll(cover => cover is not null);
 
-    private static bool IsInUse(LibraryCoverState state, Guid coverId) =>
-        state.CurrentCoverId == coverId
-        || state.Original?.Id == coverId
-        || state.History.Exists(listed => listed.Id == coverId);
-
     private SemaphoreSlim GateOf(Guid libraryId) => _gates.GetOrAdd(libraryId, static _ => new SemaphoreSlim(1, 1));
 
     private string LibraryFolder(Guid libraryId) => Path.Combine(_root, libraryId.ToString("N"));
 
-    private string StatePath(Guid libraryId) => Path.Combine(LibraryFolder(libraryId), StateFileName);
+    /// <summary>Where a library's state is saved. Every save writes a new file and moves it over this one.</summary>
+    internal string StatePath(Guid libraryId) => Path.Combine(LibraryFolder(libraryId), StateFileName);
 
     private string CoverPath(Guid libraryId, Guid coverId, string extension) =>
         Path.Combine(LibraryFolder(libraryId), "covers", coverId.ToString("N") + extension);
-
-    // Best effort: the state no longer lists these files, so one that cannot be deleted is logged and left behind.
-    private void DeleteCoverFiles(Guid libraryId, Guid coverId)
-    {
-        TryDelete(AnimatedPath(libraryId, coverId));
-        TryDelete(StillPath(libraryId, coverId));
-    }
 
     private void TryDelete(string path)
     {

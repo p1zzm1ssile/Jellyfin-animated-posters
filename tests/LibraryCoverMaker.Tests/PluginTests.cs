@@ -53,6 +53,13 @@ public sealed class PluginTests
             Assert.NotNull(stream);
         }
 
+        // Only the page and its script come from the Web folder: the image filter's source lives there too.
+        Assert.Equal(
+            pages.Select(info => info.EmbeddedResourcePath).Order(StringComparer.Ordinal),
+            assembly.GetManifestResourceNames()
+                .Where(name => name.StartsWith("Jellyfin.Plugin.LibraryCoverMaker.Web.", StringComparison.Ordinal))
+                .Order(StringComparer.Ordinal));
+
         using var html = new StreamReader(assembly.GetManifestResourceStream(page.EmbeddedResourcePath)!);
         Assert.Contains("data-controller=\"__plugin/librarycovers.js\"", html.ReadToEnd(), StringComparison.Ordinal);
     }

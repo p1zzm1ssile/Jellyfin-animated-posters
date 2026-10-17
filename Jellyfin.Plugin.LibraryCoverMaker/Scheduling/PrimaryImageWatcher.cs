@@ -35,10 +35,6 @@ public sealed class PrimaryImageWatcher : IHostedService, IDisposable
     internal const string EditImagesNotice =
         "Pinned: the Primary image was changed in Jellyfin's Edit images dialog, so it is kept as an uploaded cover.";
 
-    // Jellyfin keeps the modification time of an image in its database; a round trip through it must not make the
-    // plugin's own image look changed. An upload at the same path writes a new file, far more than this later.
-    private static readonly TimeSpan SameTime = TimeSpan.FromSeconds(1);
-
     // How recent an image must be to count as an upload in a library the plugin never applied a cover to.
     private static readonly TimeSpan JustWritten = TimeSpan.FromMinutes(10);
 
@@ -134,7 +130,7 @@ public sealed class PrimaryImageWatcher : IHostedService, IDisposable
 
         return !string.Equals(image.Path, state.AppliedPrimaryPath, StringComparison.Ordinal)
             || state.AppliedPrimaryModified is not { } applied
-            || (image.Modified - applied).Duration() > SameTime;
+            || (image.Modified - applied).Duration() > CoverApplier.AppliedTimeTolerance;
     }
 
     /// <summary>

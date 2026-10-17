@@ -38,7 +38,8 @@ public static class CoverRenderer
     /// <summary>How many frames a fade between two slots lasts: <c>FadeFrames / fps</c> seconds.</summary>
     public const int FadeFrames = 4;
 
-    // The artwork zooms from 1.00 to 1.12 over its slot. Text, not a number, so no culture can change its decimal point.
+    // The artwork zooms from 1.00 to 1.12 over its slot. Text, not a number, so no culture can change its decimal
+    // point.
     private const string ZoomGain = "0.12";
 
     private const string ToneMap = "tonemapx=tonemap=bt2390:desat=0:peak=100:t=bt709:m=bt709:p=bt709:format=yuv420p";
@@ -47,7 +48,8 @@ public static class CoverRenderer
     private const int ErrorLinesKept = 20;
 
     // The animated WebP is written only at the end of a render, so what shows that ffmpeg is alive is its processor
-    // time and its messages (see FfmpegRunner). Three minutes with neither is a file that hangs, such as a network share.
+    // time and its messages (see FfmpegRunner). Three minutes with neither is a file that hangs, such as a network
+    // share.
     private static readonly TimeSpan StallLimit = TimeSpan.FromMinutes(3);
 
     /// <summary>
@@ -60,7 +62,10 @@ public static class CoverRenderer
     {
         if (!double.IsFinite(lengthSeconds) || lengthSeconds <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(lengthSeconds), lengthSeconds, "The length must be a positive number of seconds.");
+            throw new ArgumentOutOfRangeException(
+                nameof(lengthSeconds),
+                lengthSeconds,
+                "The length must be a positive number of seconds.");
         }
 
         ArgumentOutOfRangeException.ThrowIfLessThan(slots, 1);
@@ -100,8 +105,10 @@ public static class CoverRenderer
     /// The plan cannot be rendered, or a final path already exists: a render never replaces a file, so that a cover is
     /// both its files or neither. Nothing has been started or written.
     /// </exception>
-    /// <exception cref="CoverRenderException">ffmpeg failed, the cover is not what was planned, or its files could not be stored.</exception>
-    /// <exception cref="OperationCanceledException">Cancelled: ffmpeg was stopped and the temporary files removed.</exception>
+    /// <exception cref="CoverRenderException">ffmpeg failed, the cover is not what was planned, or its files could not
+    /// be stored.</exception>
+    /// <exception cref="OperationCanceledException">Cancelled: ffmpeg was stopped and the temporary files
+    /// removed.</exception>
     public static async Task RenderAsync(FfmpegRunner ffmpeg, RenderPlan plan, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(ffmpeg);
@@ -145,7 +152,8 @@ public static class CoverRenderer
     /// How long the cover of <paramref name="plan"/> lasts, in milliseconds: the frames of its slots, less the frames
     /// that two neighbouring slots share while one fades into the other.
     /// </summary>
-    internal static double PlannedMilliseconds(RenderPlan plan) => PlannedFrames(plan, Validate(plan)) * 1000.0 / plan.Fps;
+    internal static double PlannedMilliseconds(RenderPlan plan) =>
+        PlannedFrames(plan, Validate(plan)) * 1000.0 / plan.Fps;
 
     /// <summary>
     /// Where ffmpeg writes the animated WebP and the still JPEG before they are moved to their final paths: the
@@ -163,8 +171,13 @@ public static class CoverRenderer
 
     private static List<string> Compose(RenderPlan plan, int[] frames, string animatedTemp, string stillTemp)
     {
-        // -threads belongs to one file, so every input and both outputs carry their own; the filter graph has its own option.
-        var args = new List<string> { "-filter_complex_threads", FfmpegRunner.MaxThreads.ToString(CultureInfo.InvariantCulture) };
+        // -threads belongs to one file, so every input and both outputs carry their own; the filter graph has its own
+        // option.
+        var args = new List<string>
+        {
+            "-filter_complex_threads",
+            FfmpegRunner.MaxThreads.ToString(CultureInfo.InvariantCulture),
+        };
 
         for (var i = 0; i < plan.Slots.Count; i++)
         {
@@ -172,14 +185,16 @@ public static class CoverRenderer
             args.AddRange(FfmpegRunner.ThreadLimit);
             if (slot.Kind == SlotKind.Video)
             {
-                // Seeking before the input jumps to the moment instead of decoding up to it; the clip is read for its length only.
+                // Seeking before the input jumps to the moment instead of decoding up to it; the clip is read for its
+                // length only.
                 args.AddRange(["-ss", Seconds(slot.StartSeconds), "-t", Seconds(frames[i] / (double)plan.Fps)]);
             }
 
             args.AddRange(["-i", slot.Path]);
         }
 
-        // The overlay is the one looped input: the picture slots are single frames, because looping them froze the zoom.
+        // The overlay is the one looped input: the picture slots are single frames, because looping them froze the
+        // zoom.
         args.AddRange(FfmpegRunner.ThreadLimit);
         args.AddRange(["-loop", "1", "-i", plan.OverlayPngPath]);
 
@@ -208,7 +223,8 @@ public static class CoverRenderer
         }
 
         var joined = JoinSlots(plan, frames, chains);
-        chains.Add(Inv($"[{joined}][{plan.Slots.Count}:v]overlay=shortest=1:format=auto,format=yuv420p,split=2[anim][st]"));
+        chains.Add(
+            Inv($"[{joined}][{plan.Slots.Count}:v]overlay=shortest=1:format=auto,format=yuv420p,split=2[anim][st]"));
         return string.Join(';', chains);
     }
 
@@ -252,7 +268,8 @@ public static class CoverRenderer
             "trim=end_frame=1",
             Inv($"scale={2 * width}:{2 * height}:force_original_aspect_ratio=increase:reset_sar=1"),
             Inv($"crop={2 * width}:{2 * height}"),
-            Inv($"zoompan=z='1+{ZoomGain}*on/{frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={frames}:s={width}x{height}:fps={fps}"),
+            Inv($"zoompan=z='1+{ZoomGain}*on/{frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':")
+                + Inv($"d={frames}:s={width}x{height}:fps={fps}"),
             "setsar=1",
             "format=yuv420p");
 
@@ -300,7 +317,9 @@ public static class CoverRenderer
         // yuv420p halves the colour planes, which needs even sizes.
         if (plan.Width <= 0 || plan.Height <= 0 || plan.Width % 2 != 0 || plan.Height % 2 != 0)
         {
-            throw new ArgumentException($"The size of a cover must be positive and even, not {plan.Width}x{plan.Height}.", nameof(plan));
+            throw new ArgumentException(
+                $"The size of a cover must be positive and even, not {plan.Width}x{plan.Height}.",
+                nameof(plan));
         }
 
         if (plan.Fps <= 0)
@@ -327,12 +346,16 @@ public static class CoverRenderer
             RequireAbsolute(slot.Path, $"The file of slot {i}");
             if (!double.IsFinite(slot.DurationSeconds) || slot.DurationSeconds <= 0)
             {
-                throw new ArgumentException($"Slot {i} must last a positive number of seconds, not {slot.DurationSeconds}.", nameof(plan));
+                throw new ArgumentException(
+                    $"Slot {i} must last a positive number of seconds, not {slot.DurationSeconds}.",
+                    nameof(plan));
             }
 
             if (slot.Kind == SlotKind.Video && (!double.IsFinite(slot.StartSeconds) || slot.StartSeconds < 0))
             {
-                throw new ArgumentException($"The clip of slot {i} must start at 0 seconds or later, not {slot.StartSeconds}.", nameof(plan));
+                throw new ArgumentException(
+                    $"The clip of slot {i} must start at 0 seconds or later, not {slot.StartSeconds}.",
+                    nameof(plan));
             }
 
             if (slot.Kind == SlotKind.Video && slot.Crop is { } crop
@@ -350,7 +373,8 @@ public static class CoverRenderer
             if (frames[i] < shortest)
             {
                 throw new ArgumentException(
-                    $"Slot {i} is too short: it gets {frames[i]} frames at {plan.Fps} fps and needs at least {shortest}.",
+                    $"Slot {i} is too short: it gets {frames[i]} frames at {plan.Fps} fps and needs at least "
+                    + $"{shortest}.",
                     nameof(plan));
             }
         }
@@ -460,7 +484,8 @@ public static class CoverRenderer
         }
     }
 
-    // ffmpeg exits 0 when a clip gave no frame at all, and the slots after it are gone: only the WebP knows how long it is.
+    // ffmpeg exits 0 when a clip gave no frame at all, and the slots after it are gone: only the WebP knows how long it
+    // is.
     private static void RequireLength(string animatedTemp, RenderPlan plan, double plannedMilliseconds, string tail)
     {
         byte[] file;
@@ -470,7 +495,11 @@ public static class CoverRenderer
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            throw new CoverRenderException($"The animated WebP that ffmpeg wrote could not be read back: {ex.Message}", 0, tail, ex);
+            throw new CoverRenderException(
+                $"The animated WebP that ffmpeg wrote could not be read back: {ex.Message}",
+                0,
+                tail,
+                ex);
         }
 
         (bool Animated, long Milliseconds) timeline;
@@ -480,7 +509,11 @@ public static class CoverRenderer
         }
         catch (InvalidDataException ex)
         {
-            throw new CoverRenderException($"ffmpeg wrote an animated WebP that cannot be used: it {ex.Message}.", 0, tail, ex);
+            throw new CoverRenderException(
+                $"ffmpeg wrote an animated WebP that cannot be used: it {ex.Message}.",
+                0,
+                tail,
+                ex);
         }
 
         if (!timeline.Animated)
@@ -492,7 +525,8 @@ public static class CoverRenderer
             }
 
             throw new CoverRenderException(
-                "The cover came out as a still picture instead of an animation: all but one slot gave no frames, or every frame was the same.",
+                "The cover came out as a still picture instead of an animation: all but one slot gave no frames, or "
+                + "every frame was the same.",
                 0,
                 tail);
         }
@@ -556,12 +590,15 @@ public static class CoverRenderer
     }
 }
 
-/// <summary>A cover could not be rendered. <see cref="Exception.Message"/> says why in one line, for the library's card.</summary>
+/// <summary>
+/// A cover could not be rendered. <see cref="Exception.Message"/> says why in one line, for the library's card.
+/// </summary>
 public sealed class CoverRenderException : Exception
 {
     /// <summary>Creates the exception.</summary>
     /// <param name="message">Why the render failed, in one line.</param>
-    /// <param name="exitCode">The exit code of ffmpeg: 0 when it succeeded and what came after it failed, negative when it did not run to its end.</param>
+    /// <param name="exitCode">The exit code of ffmpeg: 0 when it succeeded and what came after it failed, negative when
+    /// it did not run to its end.</param>
     /// <param name="errors">The last 20 lines of ffmpeg's error output.</param>
     /// <param name="inner">The exception behind it, if any.</param>
     public CoverRenderException(string message, int exitCode, string errors, Exception? inner = null)
@@ -571,7 +608,10 @@ public sealed class CoverRenderException : Exception
         Errors = errors;
     }
 
-    /// <summary>The exit code of ffmpeg: 0 when it succeeded and what came after it failed, negative when it did not run to its end.</summary>
+    /// <summary>
+    /// The exit code of ffmpeg: 0 when it succeeded and what came after it failed, negative when it did not run to its
+    /// end.
+    /// </summary>
     public int ExitCode { get; }
 
     /// <summary>The last 20 lines of ffmpeg's error output, one per line. Empty when ffmpeg said nothing.</summary>

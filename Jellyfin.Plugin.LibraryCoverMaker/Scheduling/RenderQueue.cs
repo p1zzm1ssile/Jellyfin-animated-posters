@@ -32,7 +32,10 @@ public sealed class RenderQueue : IHostedService
     private readonly Lock _lock = new();
     private readonly List<Job> _normal = new();
     private readonly Queue<Job> _manual = new();
-    private readonly HashSet<Guid> _queued = new();
+
+    // The job each library waits with, from Enqueue until its build starts, also while the worker holds it back for
+    // playback (then it is in neither queue). Jobs started with RunNowAsync are never in it.
+    private readonly Dictionary<Guid, Job> _waiting = new();
     private readonly SemaphoreSlim _wake = new(0);
     private readonly SemaphoreSlim _manualWake = new(0);
     private CancellationTokenSource? _stopping;
@@ -61,21 +64,29 @@ public sealed class RenderQueue : IHostedService
         _playbackPoll = playbackPoll ?? DefaultPlaybackPoll;
     }
 
-    /// <summary>
-    /// Raised on the worker after each job that ran or was dropped, with its result. A job replaced by a manual
-    /// request for the same library raises nothing: the manual job's own event covers the library.
-    /// </summary>
+    /// <summary>Raised on the worker after each job that ran or was dropped, with its result.</summary>
     public event Action<Guid, BuildReason, BuildResult>? BuildFinished;
 
     /// <summary>
     /// Asks for a library's cover to be built when its turn comes. A library that is already waiting is not added a
     /// second time, and it counts as waiting until its build actually starts, also while the worker holds it back for
-    /// playback. A <see cref="BuildReason.Manual"/> request is the exception: it replaces the waiting job and goes to
-    /// the front. A library being built right now is added, because the build may have started before the reason
-    /// arose.
+    /// playback. An <see cref="BuildReason.AudienceChanged"/> request turns a waiting
+    /// <see cref="BuildReason.Scheduled"/> job into an audience change where it stands, since a pinned or manual
+    /// library is built only for that one. A library being built right now is added, because the build may have
+    /// started before the reason arose. An admin's <see cref="BuildReason.Manual"/> build goes through
+    /// <see cref="RunNowAsync"/>, so nothing it asks for ever takes the place of a waiting job.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="reason"/> is Manual.</exception>
     public void Enqueue(Guid libraryId, BuildReason reason)
     {
+        if (reason == BuildReason.Manual)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(reason),
+                reason,
+                "A manual build goes through RunNowAsync, so that the admin gets its result.");
+        }
+
         lock (_lock)
         {
             if (_stopped)
@@ -83,20 +94,20 @@ public sealed class RenderQueue : IHostedService
                 return;
             }
 
-            if (!_queued.Add(libraryId))
+            if (_waiting.TryGetValue(libraryId, out var waiting))
             {
-                if (reason != BuildReason.Manual
-                    || _manual.Any(waiting => waiting.LibraryId == libraryId && waiting.Done is null))
+                // Everything a Scheduled build may do, an AudienceChanged one may do too (CoverRules.ShouldBuild).
+                if (reason == BuildReason.AudienceChanged && waiting.Reason == BuildReason.Scheduled)
                 {
-                    return;
+                    waiting.Reason = reason;
                 }
 
-                // Promoted: the waiting job is dropped. One the worker holds back for playback is dropped when it
-                // sees this manual job (see YieldToManual).
-                _normal.RemoveAll(waiting => waiting.LibraryId == libraryId && waiting.Done is null);
+                return;
             }
 
-            Add(new Job(libraryId, reason, null, CancellationToken.None));
+            var job = new Job(libraryId, reason, null, CancellationToken.None);
+            _waiting[libraryId] = job;
+            Add(job);
         }
     }
 
@@ -176,7 +187,7 @@ public sealed class RenderQueue : IHostedService
 
             _normal.Clear();
             _manual.Clear();
-            _queued.Clear();
+            _waiting.Clear();
         }
     }
 
@@ -276,6 +287,7 @@ public sealed class RenderQueue : IHostedService
                 return;
             }
 
+            // Out of the waiting list, the job's reason can no longer change.
             Unqueue(job);
             Finish(job, await _build(job.LibraryId, job.Reason, token).ConfigureAwait(false));
         }
@@ -297,8 +309,9 @@ public sealed class RenderQueue : IHostedService
         }
     }
 
-    // A manual job that arrived while this one waited goes first: this one returns to the head of its queue, or is
-    // dropped when the manual job is for the same library (that build covers it).
+    // A manual job that arrived while this one waited goes first, and this one returns to the head of its queue. It is
+    // never dropped, not even for a manual build of the same library: on a pinned library only an audience change
+    // replaces the cover, and a manual build does nothing there.
     private bool YieldToManual(Job job)
     {
         lock (_lock)
@@ -308,26 +321,23 @@ public sealed class RenderQueue : IHostedService
                 return false;
             }
 
-            // A manual request for the same library replaces this job, which is then dropped, not put back.
-            var replaced = job.Done is null
-                && _manual.Any(manual => manual.LibraryId == job.LibraryId && manual.Done is null);
-            if (!replaced)
-            {
-                _normal.Insert(0, job);
-                _wake.Release();
-            }
-
+            _normal.Insert(0, job);
+            _wake.Release();
             return true;
         }
     }
 
+    // Only this job's own entry, as a later job of the same library may have taken the place.
     private void Unqueue(Job job)
     {
         if (job.Done is null)
         {
             lock (_lock)
             {
-                _queued.Remove(job.LibraryId);
+                if (_waiting.TryGetValue(job.LibraryId, out var waiting) && ReferenceEquals(waiting, job))
+                {
+                    _waiting.Remove(job.LibraryId);
+                }
             }
         }
     }
@@ -435,7 +445,8 @@ public sealed class RenderQueue : IHostedService
     {
         public Guid LibraryId { get; } = libraryId;
 
-        public BuildReason Reason { get; } = reason;
+        // Changed only under the queue's lock, while the job is in the waiting list (see Enqueue).
+        public BuildReason Reason { get; set; } = reason;
 
         public TaskCompletionSource<BuildResult>? Done { get; } = done;
 

@@ -94,7 +94,11 @@ public static class SceneWindow
         return pieces;
     }
 
-    private static void AddIfItFits(List<(double Start, double End)> pieces, double start, double end, double clipSeconds)
+    private static void AddIfItFits(
+        List<(double Start, double End)> pieces,
+        double start,
+        double end,
+        double clipSeconds)
     {
         var latestStart = end - clipSeconds;
         if (latestStart >= start)

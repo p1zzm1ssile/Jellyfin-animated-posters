@@ -108,7 +108,9 @@ public class CoverRecord
     /// <summary>When the cover was made, uploaded or kept.</summary>
     public DateTimeOffset CreatedAt { get; set; }
 
-    /// <summary>Whether the plugin made the cover, an admin uploaded it, or it is the library's original Primary image.</summary>
+    /// <summary>
+    /// Whether the plugin made the cover, an admin uploaded it, or it is the library's original Primary image.
+    /// </summary>
     public CoverOrigin Origin { get; set; }
 
     /// <summary>The content mode the library was in when the cover was added.</summary>
@@ -163,7 +165,7 @@ public class LibraryCoverState
     public CoverRecord? Original { get; set; }
 
     /// <summary>
-    /// The covers the library has had, newest first. <c>CoverStore.AddToHistory</c> keeps one entry per cover id.
+    /// The covers the library has had, newest first. <c>CoverApplier.AddToHistory</c> keeps one entry per cover id.
     /// The current cover is one of them, unless it is the original, which is kept apart in
     /// <see cref="Original"/>.
     /// </summary>
@@ -175,13 +177,17 @@ public class LibraryCoverState
     /// <summary>When the plugin last rendered a cover for this library.</summary>
     public DateTimeOffset? LastRenderedAt { get; set; }
 
-    /// <summary>Why the last render failed, shown on the library's card. Cleared by the next successful render.</summary>
+    /// <summary>
+    /// Why the last render failed, shown on the library's card. Cleared by the next successful render.
+    /// </summary>
     public string? LastError { get; set; }
 
     /// <summary>When <see cref="LastError"/> happened.</summary>
     public DateTimeOffset? LastErrorAt { get; set; }
 
-    /// <summary>Something that happened without an admin asking, such as a locked title unlocked or a cover replaced.</summary>
+    /// <summary>
+    /// Something that happened without an admin asking, such as a locked title unlocked or a cover replaced.
+    /// </summary>
     public string? Notice { get; set; }
 
     /// <summary>When <see cref="Notice"/> happened.</summary>
@@ -193,6 +199,8 @@ public class LibraryCoverState
     /// </summary>
     public string? AppliedPrimaryPath { get; set; }
 
-    /// <summary>When the Primary image file was last modified, as Jellyfin recorded it after the plugin applied a cover.</summary>
+    /// <summary>
+    /// When the Primary image file was last modified, as Jellyfin recorded it after the plugin applied a cover.
+    /// </summary>
     public DateTime? AppliedPrimaryModified { get; set; }
 }
