@@ -19,9 +19,23 @@ public sealed class PluginTests
     {
         var c = new PluginConfiguration();
         Assert.Equal(PrimaryFormat.Animated, c.PrimaryFormat);
-        Assert.Equal(CoverMode.Art, c.DefaultMode);
+        Assert.Equal(CoverMode.Scenes, c.DefaultMode);
         Assert.Equal((640, 360), (c.OutputWidth, c.OutputHeight));
         Assert.Equal(8, c.HistorySize);
+    }
+
+    [Fact]
+    public void A_stored_configuration_keeps_its_default_mode()
+    {
+        // Jellyfin reads the plugin's XML with XmlSerializer: a file that holds Art stays Art, and one that does
+        // not mention the setting gets the new default.
+        var serializer = new System.Xml.Serialization.XmlSerializer(typeof(PluginConfiguration));
+        const string Art = "<PluginConfiguration><DefaultMode>Art</DefaultMode></PluginConfiguration>";
+        const string Silent = "<PluginConfiguration><HistorySize>8</HistorySize></PluginConfiguration>";
+
+        Assert.Equal(CoverMode.Art, ((PluginConfiguration)serializer.Deserialize(new StringReader(Art))!).DefaultMode);
+        Assert.Equal(
+            CoverMode.Scenes, ((PluginConfiguration)serializer.Deserialize(new StringReader(Silent))!).DefaultMode);
     }
 
     [Fact]

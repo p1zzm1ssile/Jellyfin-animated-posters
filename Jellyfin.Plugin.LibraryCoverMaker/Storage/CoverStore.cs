@@ -85,7 +85,7 @@ public class CoverStore
     /// replacing an earlier copy. The library then gets the defaults, pinned and with a notice, saved at once: no
     /// schedule replaces its cover because a file was unreadable, and the next load does not repeat any of this.
     /// </summary>
-    public LibraryCoverState Load(Guid libraryId, CoverMode defaultMode = CoverMode.Art)
+    public LibraryCoverState Load(Guid libraryId, CoverMode defaultMode = CoverMode.Scenes)
     {
         var path = StatePath(libraryId);
         lock (_lock)
@@ -192,7 +192,7 @@ public class CoverStore
     public LibraryCoverState Update(
         Guid libraryId,
         Action<LibraryCoverState> change,
-        CoverMode defaultMode = CoverMode.Art)
+        CoverMode defaultMode = CoverMode.Scenes)
     {
         ArgumentNullException.ThrowIfNull(change);
 
@@ -222,7 +222,7 @@ public class CoverStore
     public async Task<LibraryCoverState> UpdateAsync(
         Guid libraryId,
         Func<LibraryCoverState, CancellationToken, Task> change,
-        CoverMode defaultMode = CoverMode.Art,
+        CoverMode defaultMode = CoverMode.Scenes,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(change);

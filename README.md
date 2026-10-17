@@ -38,11 +38,13 @@ No release is published yet, so the catalog stays empty until the first tagged v
 
 ### Modes
 
-- **Art** (the default): a slow zoom through the backdrop images of the library's titles.
-- **Scenes**: short clips from the videos themselves, picked by score for brightness, contrast, color, sharpness,
-  little letterboxing and no cut inside the clip. Clips never come from an intro, outro, recap, preview or
+- **Scenes** (the default): short clips from the videos themselves, picked by score for brightness, contrast, color,
+  sharpness, little letterboxing and no cut inside the clip. Clips never come from an intro, outro, recap, preview or
   commercial that Jellyfin has marked, nor from the first or last tenth of a title. HDR videos are tone mapped so
-  they are not darker than the rest. For TV shows, episodes from the first season are preferred.
+  they are not darker than the rest. For TV shows, episodes from the first season are preferred. Scenes reads short
+  pieces of the videos on each renewal, so it costs more disk reads than Art. A library with no playable video falls
+  back to artwork, and then to the name-only cover.
+- **Art**: a slow zoom through the backdrop images of the library's titles. A library with no artwork uses Scenes.
 - **Manual**: covers are only made when you ask (Generate now or a change to the slots), never on a schedule.
 
 Pinning is separate from the mode: a pinned library keeps its cover whatever the mode, until you go back to

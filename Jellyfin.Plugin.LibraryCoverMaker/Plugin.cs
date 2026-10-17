@@ -62,7 +62,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public PrimaryFormat PrimaryFormat { get; set; } = PrimaryFormat.Animated;
 
     /// <summary>The content mode a library starts with.</summary>
-    public CoverMode DefaultMode { get; set; } = CoverMode.Art;
+    public CoverMode DefaultMode { get; set; } = CoverMode.Scenes;
 
     /// <summary>Width of a rendered cover, in pixels.</summary>
     public int OutputWidth { get; set; } = 640;

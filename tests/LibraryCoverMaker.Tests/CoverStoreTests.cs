@@ -51,7 +51,7 @@ public sealed class CoverStoreTests : IDisposable
         var state = _store.Load(Library);
 
         Assert.Equal(Library, state.LibraryId);
-        Assert.Equal(CoverMode.Art, state.Mode);
+        Assert.Equal(CoverMode.Scenes, state.Mode);
         Assert.False(state.Pinned);
         Assert.Equal(5, state.Slots.Length);
         Assert.Equal(5, state.Slots.Distinct().Count());
@@ -96,17 +96,17 @@ public sealed class CoverStoreTests : IDisposable
     [Fact]
     public void New_library_uses_the_given_default_mode()
     {
-        Assert.Equal(CoverMode.Scenes, _store.Load(Library, CoverMode.Scenes).Mode);
+        Assert.Equal(CoverMode.Art, _store.Load(Library, CoverMode.Art).Mode);
 
         // The default mode is only for a library with no state file: a saved state keeps its own mode.
-        _store.Save(_store.Load(Library));
+        _store.Save(_store.Load(Library, CoverMode.Art));
         Assert.Equal(CoverMode.Art, _store.Load(Library, CoverMode.Scenes).Mode);
 
         // A state file that cannot be read does not get it either.
         var unreadable = Guid.NewGuid();
         Directory.CreateDirectory(LibraryFolder(unreadable));
         File.WriteAllText(StatePath(unreadable), "{ \"Mode\": ");
-        Assert.Equal(CoverMode.Art, _store.Load(unreadable, CoverMode.Scenes).Mode);
+        Assert.Equal(CoverMode.Scenes, _store.Load(unreadable, CoverMode.Art).Mode);
     }
 
     [Fact]
@@ -205,11 +205,11 @@ public sealed class CoverStoreTests : IDisposable
         _store.Save(state);
 
         var text = File.ReadAllText(StatePath(Library));
-        Assert.Contains("\"Art\"", text);
+        Assert.Contains("\"Scenes\"", text);
         using var json = JsonDocument.Parse(text);
         var mode = json.RootElement.GetProperty("Mode");
         Assert.Equal(JsonValueKind.String, mode.ValueKind);
-        Assert.Equal("Art", mode.GetString());
+        Assert.Equal("Scenes", mode.GetString());
         var entry = json.RootElement.GetProperty("History")[0];
         Assert.Equal("Uploaded", entry.GetProperty("Origin").GetString());
         Assert.Equal("Manual", entry.GetProperty("Mode").GetString());
@@ -418,7 +418,7 @@ public sealed class CoverStoreTests : IDisposable
         var after = DateTimeOffset.UtcNow;
 
         Assert.Equal(Library, state.LibraryId);
-        Assert.Equal(CoverMode.Art, state.Mode);
+        Assert.Equal(CoverMode.Scenes, state.Mode);
         Assert.Equal(5, state.Slots.Length);
         Assert.Empty(state.History);
 
@@ -469,7 +469,7 @@ public sealed class CoverStoreTests : IDisposable
 
         var state = _store.Load(Library);
 
-        Assert.Equal(CoverMode.Art, state.Mode);
+        Assert.Equal(CoverMode.Scenes, state.Mode);
         Assert.True(state.Pinned);
         Assert.Equal(UnreadableNotice, state.Notice);
         Assert.Equal(contents, File.ReadAllText(StatePath(Library) + ".bad"));

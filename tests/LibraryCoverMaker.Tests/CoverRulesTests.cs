@@ -334,6 +334,7 @@ public sealed class CoverRulesTests : IDisposable
     public async Task Build_applies_the_cover_and_records_it()
     {
         Titles(TitleA, TitleB, TitleC, TitleD, TitleE);
+        _store.Update(Library, state => state.Mode = CoverMode.Art);
 
         var result = await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
 
@@ -638,6 +639,7 @@ public sealed class CoverRulesTests : IDisposable
     public async Task Each_slot_tries_two_titles_then_art_falls_back_to_scenes_and_then_to_the_name()
     {
         Titles(TitleA, TitleB, TitleC, TitleD);
+        _store.Update(Library, state => state.Mode = CoverMode.Art);
         _store.Update(Library, state => state.Style.SlotCount = 1);
         _source.Fails = _ => true;
 
@@ -678,6 +680,7 @@ public sealed class CoverRulesTests : IDisposable
     public async Task Art_mode_without_artwork_falls_back_to_scenes()
     {
         _source.Titles.AddRange(new[] { TitleA, TitleB }.Select(id => Candidate(id, backdrop: false)));
+        _store.Update(Library, state => state.Mode = CoverMode.Art);
 
         var result = await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
 
@@ -690,9 +693,52 @@ public sealed class CoverRulesTests : IDisposable
     }
 
     [Fact]
+    public async Task Scenes_mode_without_a_playable_video_falls_back_to_art()
+    {
+        // The default mode: a library whose titles have no video (music videos with no file, a series with no
+        // episode on disk) still gets a cover from the backdrops.
+        _source.Titles.AddRange(new[] { TitleA, TitleB }.Select(id => Candidate(id, video: false)));
+
+        var result = await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
+
+        Assert.Equal(new BuildResult(true, null, 2), result);
+        Assert.All(_source.Asked, asked => Assert.Equal(CoverMode.Art, asked.Mode));
+        Assert.All(_renderer.Plans[0].Slots, slot => Assert.Equal(SlotKind.Image, slot.Kind));
+
+        // The record keeps the library's own mode.
+        Assert.Equal(CoverMode.Scenes, _store.Load(Library).History[0].Mode);
+    }
+
+    [Fact]
+    public async Task Scenes_mode_whose_clips_all_fail_falls_back_to_art()
+    {
+        Titles(TitleA, TitleB);
+        _source.Fails = asked => asked.Mode == CoverMode.Scenes;
+
+        var result = await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
+
+        Assert.Equal(new BuildResult(true, null, 2), result);
+        Assert.Contains(_source.Asked, asked => asked.Mode == CoverMode.Scenes);
+        Assert.All(_renderer.Plans[0].Slots, slot => Assert.Equal(SlotKind.Image, slot.Kind));
+    }
+
+    [Fact]
+    public async Task Scenes_mode_without_video_or_artwork_gets_the_name_only_cover()
+    {
+        _source.Titles.AddRange(new[] { TitleA, TitleB }.Select(id => Candidate(id, backdrop: false, video: false)));
+
+        var result = await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
+
+        Assert.Equal(new BuildResult(true, null, 0), result);
+        Assert.Empty(_source.Asked);
+        Assert.Empty(_store.Load(Library).History[0].TitleIds);
+    }
+
+    [Fact]
     public async Task Fewer_slots_than_planned_still_fill_the_length()
     {
         Titles(TitleA, TitleB);
+        _store.Update(Library, state => state.Mode = CoverMode.Art);
         _store.Update(Library, state => state.Style.SlotCount = 2);
         _source.Fails = asked => asked.Title == TitleA; // and no other title is left to replace it
 
@@ -1317,7 +1363,7 @@ public sealed class CoverRulesTests : IDisposable
     public async Task Mode_change_during_the_render_discards_it()
     {
         Titles(TitleA);
-        _renderer.During = () => _store.Update(Library, state => state.Mode = CoverMode.Scenes);
+        _renderer.During = () => _store.Update(Library, state => state.Mode = CoverMode.Art);
 
         var result = await _builder.BuildAsync(Library, BuildReason.Scheduled, CancellationToken.None);
 
@@ -2194,8 +2240,8 @@ public sealed class CoverRulesTests : IDisposable
         TitleIds = titles.ToList(),
     };
 
-    private static TitleCandidate Candidate(Guid id, bool backdrop = true) =>
-        new(id, 0, CommunityRating: null, new DateTime(2026, 1, 1), HasBackdrop: backdrop, HasVideo: true);
+    private static TitleCandidate Candidate(Guid id, bool backdrop = true, bool video = true) =>
+        new(id, 0, CommunityRating: null, new DateTime(2026, 1, 1), HasBackdrop: backdrop, HasVideo: video);
 
     // A generated cover with both of its files in the store.
     private CoverRecord Generated()

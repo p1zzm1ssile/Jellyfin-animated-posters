@@ -121,5 +121,5 @@ public sealed class RefreshCoversTask : IScheduledTask
             .Where(id => id != Guid.Empty);
 
     internal static CoverMode DefaultModeFromPlugin() =>
-        Plugin.Instance?.Configuration.DefaultMode ?? CoverMode.Art;
+        Plugin.Instance?.Configuration.DefaultMode ?? CoverMode.Scenes;
 }

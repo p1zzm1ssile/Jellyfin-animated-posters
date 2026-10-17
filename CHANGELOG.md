@@ -25,11 +25,13 @@ in `manifest.json`.
   video and mixed library gets a cover with no setup: it is drawn on the server and saved as the library's Primary
   image. A scheduled task, Refresh library covers, makes new ones every Sunday at 03:00 by default, so the covers change
   over time. Libraries of music, books and photos can have a cover uploaded or pinned.
-- **Art and Scenes modes.** Art, the default, moves through the backdrop images of the library's titles with a slow
-  zoom. Scenes cuts between short clips from the videos themselves, picked by score for brightness, contrast, color,
-  sharpness, little letterboxing and no cut inside the clip, and never from an intro, outro, recap, preview or
-  commercial that Jellyfin has marked, nor from the first or last tenth of a title. HDR videos are tone mapped, so their
-  clips are not darker than the rest. A library with no artwork, such as home videos, uses Scenes by itself.
+- **Scenes and Art modes.** Scenes, the default, cuts between short clips from the videos themselves, picked by score
+  for brightness, contrast, color, sharpness, little letterboxing and no cut inside the clip, and never from an intro,
+  outro, recap, preview or commercial that Jellyfin has marked, nor from the first or last tenth of a title. HDR videos
+  are tone mapped, so their clips are not darker than the rest. Scenes reads short pieces of the videos on each
+  renewal, so it costs more disk reads than Art, which moves through the backdrop images of the library's titles with
+  a slow zoom. A library with no artwork, such as home videos, uses Scenes by itself, and one with no playable video
+  uses Art.
 - **Your own covers.** Upload a cover, still or animated, pin the one a library has so it leaves the rotation, or hand
   the library back to automatic. A cover you uploaded or pinned is not replaced by the weekly task.
 - **History.** Each library keeps its last 8 covers and the Primary image it had before the plugin first replaced it.
