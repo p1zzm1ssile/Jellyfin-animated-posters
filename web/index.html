@@ -94,12 +94,35 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
 .result img { width: 100%; max-width: 100%; border-radius: 6px; border: 1px solid var(--line); }
 .howto { font-size: 14px; line-height: 1.55; margin: 0; padding-left: 1.2em; }
 .howto li + li { margin-top: 4px; }
+
+/* Poster mode: the preview is portrait, so keep it to a sensible height. */
+#cv.portrait, #outImg.portrait { max-width: 400px; margin: 0 auto; display: block; }
+.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.modes label { display: block; text-align: center; padding: 7px 6px; border-radius: 6px; cursor: pointer; color: var(--fg); font-size: 12.5px; }
+.modes input { position: absolute; opacity: 0; pointer-events: none; }
+.modes label:has(input:checked) { background: var(--accent); color: var(--accent-fg); }
+.modes label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.jf { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
+.jf h2 { font-family: var(--display); font-size: 1.35rem; margin: 0; }
+.jf .row input[type=password], .jf .row input[type=text] { flex: 1; min-width: 0; }
+.jf .row .ghost { flex: none; }
+.jf input[type=password] { font: inherit; font-size: 15px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); box-sizing: border-box; }
+.jf .results { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 240px; overflow-y: auto; }
+.jf .results button { width: 100%; text-align: left; font: inherit; font-size: 13.5px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); cursor: pointer; }
+.jf .results button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.jf .results .sub { color: var(--muted); font-size: 12px; }
+.jf .msg { margin: 0; font-size: 14px; line-height: 1.5; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); }
+.jf .msg.ok { border-color: #2f9e62; }
+.jf .msg.bad { border-color: #d04545; }
+.jf img { max-width: 260px; border-radius: 6px; border: 1px solid var(--line); }
+code { font-size: 12.5px; overflow-wrap: anywhere; }
 </style>
 
 <div class="wrap">
   <header>
     <h1>Library Cover Maker</h1>
-    <p>Add up to 5 videos or pictures, or pick a folder and let it choose 5 at random. Type your library name and get an <strong>animated WebP</strong> cover that cuts between moments from each one. Choose the moment for each video, or leave it random. Pictures get a slow zoom.</p>
+    <p>Add up to 5 videos or pictures, or pick a folder and let it choose 5 at random. Type your library name and get an <strong>animated WebP</strong> or <strong>GIF</strong> cover that cuts between moments from each one, or switch to <strong>Poster</strong> for a portrait film or series poster. Choose the moment for each video, or leave it random. Pictures get a slow zoom.</p>
   </header>
 
   <div class="bench">
@@ -113,23 +136,70 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
           <label for="len">Animation length</label>
           <div class="row"><input id="len" type="range" min="2" max="12" step="1" value="6"><output id="lenOut">6 s</output></div>
         </div>
+        <div class="group">
+          <label for="format">File type</label>
+          <select id="format">
+            <option value="webp">Animated WebP (smaller, best quality)</option>
+            <option value="gif">Animated GIF (stays animated in the Jellyfin apps)</option>
+          </select>
+        </div>
         <label class="check"><input id="fade" type="checkbox" checked> Fade between clips</label>
         <button class="primary" id="make">Make animated cover</button>
         <p class="hint" id="err" hidden></p>
         <div id="out" hidden>
-          <ol class="howto">
+          <ol class="howto" id="howtoCover">
             <li>Click <strong>Download animated cover</strong> (or right-click the animation → Save image as…).</li>
             <li>In Jellyfin, right-click the library → <strong>Edit images</strong> → upload it with type <strong>Logo</strong>.</li>
             <li>Add the CSS from the chat for that library, then press Ctrl+F5.</li>
+            <li>Or use <strong>Send to Jellyfin</strong> below to make it the library’s main image in one click.</li>
+          </ol>
+          <ol class="howto" id="howtoPoster" hidden>
+            <li>Click <strong>Download animated poster</strong> (or right-click the animation → Save image as…).</li>
+            <li>In Jellyfin, open the film or series → <strong>⋯</strong> → <strong>Edit images</strong> → upload it with type <strong>Primary</strong>.</li>
+            <li>Or use <strong>Send to Jellyfin</strong> below to do it in one click.</li>
           </ol>
           <p class="hint" id="outInfo"></p>
           <a class="primary dl" id="dl" href="#" download="cover.webp">Download animated cover</a>
-          <img id="outImg" alt="Finished animated cover, ready to save">
+          <img id="outImg" alt="Finished animation, ready to save">
+        </div>
+      </div>
+
+      <div class="jf" id="jf">
+        <h2>Send to Jellyfin</h2>
+        <p class="hint" id="jfStatus">Checking for Jellyfin…</p>
+        <div class="group" id="jfBody" hidden>
+          <label for="jfKey">Jellyfin API key</label>
+          <div class="row"><input id="jfKey" type="password" autocomplete="off" spellcheck="false"><button type="button" class="ghost" id="jfConnect">Connect</button></div>
+          <p class="hint">Make one in Jellyfin under <strong>Dashboard → API Keys</strong>. It’s saved in this browser only.</p>
+
+          <div class="group" id="jfLibWrap" hidden>
+            <label for="jfLib">Library</label>
+            <select id="jfLib"></select>
+            <button type="button" class="primary" id="jfSendLib">Send cover to this library</button>
+          </div>
+
+          <div class="group" id="jfItemWrap" hidden>
+            <label for="jfSearch">Film or series</label>
+            <form class="row" id="jfSearchForm"><input id="jfSearch" type="text" autocomplete="off" placeholder="Search by name"><button type="submit" class="ghost">Search</button></form>
+            <ul class="results" id="jfResults"></ul>
+            <button type="button" class="primary" id="jfSendItem">Send poster to this title</button>
+          </div>
+
+          <p class="msg" id="jfMsg" role="status" hidden></p>
+          <img id="jfImg" alt="The image Jellyfin now has" hidden>
         </div>
       </div>
     </section>
 
     <aside class="rail">
+      <div class="group">
+        <span class="lbl" id="modeLbl">Make a</span>
+        <div class="modes" role="radiogroup" aria-labelledby="modeLbl">
+          <label><input type="radio" name="mode" value="cover" checked> Library cover</label>
+          <label><input type="radio" name="mode" value="poster"> Poster</label>
+        </div>
+      </div>
+
       <div class="group">
         <span class="lbl">Videos or pictures (up to 5)</span>
         <div class="drop" id="drop" tabindex="0" role="button">Drop files here or <strong>browse</strong><br><span style="font-size:12px">MP4, MKV, WEBM, JPG, PNG, WEBP</span></div>
@@ -158,7 +228,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
       </div>
 
       <div class="group">
-        <label for="title">Library name</label>
+        <label for="title" id="titleLbl">Library name</label>
         <input id="title" type="text" value="SHOWS" autocomplete="off">
         <div class="presets" id="presets">
           <button type="button">MOVIES</button><button type="button">SHOWS</button><button type="button">ANIME</button>
@@ -199,9 +269,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
   </div>
 </div>
 
+<script src="gifenc.js"></script>
 <script>
 (() => {
-  const W = 960, H = 540, MAX_FILES = 5;
+  // Library covers are 16:9; posters are 2:3 portrait. W and H change with the mode.
+  const SIZES = { cover: [960, 540], poster: [720, 1080] };
+  let mode = 'cover', [W, H] = SIZES.cover;
+  const MAX_FILES = 5;
   const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
   const $ = id => document.getElementById(id);
   // sources: { el, isVideo, name, url }
@@ -210,7 +284,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
 
   // Sample background so the tool opens in a working state.
   const sample = document.createElement('canvas'); sample.width = W; sample.height = H;
-  (() => {
+  function paintSample() {
     const s = sample.getContext('2d');
     const g = s.createLinearGradient(0, 0, W, H);
     g.addColorStop(0, '#1d1450'); g.addColorStop(.55, '#6b2a8c'); g.addColorStop(1, '#e0628a');
@@ -218,7 +292,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
     s.fillStyle = 'rgba(255,190,90,.9)'; s.beginPath(); s.arc(W * .5, H * .62, 150, 0, Math.PI * 2); s.fill();
     s.fillStyle = 'rgba(20,10,40,.85)';
     s.beginPath(); s.moveTo(0, H); s.lineTo(0, H*.72); s.lineTo(W*.18, H*.6); s.lineTo(W*.33, H*.74); s.lineTo(W*.52, H*.58); s.lineTo(W*.7, H*.73); s.lineTo(W*.86, H*.6); s.lineTo(W, H*.7); s.lineTo(W, H); s.fill();
-  })();
+  }
+  paintSample();
   const sampleSource = { el: sample, isVideo: false, name: 'sample' };
 
   const activeSource = () => state.sources[state.active] || sampleSource;
@@ -251,6 +326,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
     const dim = $('dim').value / 100;
     if (dim) { ctx.fillStyle = `rgba(0,0,0,${dim})`; ctx.fillRect(0, 0, W, H); }
 
+    if (mode === 'poster') drawPosterText();
+    else drawCoverText();
+
+    $('sizeOut').textContent = $('size').value;
+    $('zoomOut').textContent = $('zoom').value + '%';
+    $('dimOut').textContent = $('dim').value + '%';
+    $('lenOut').textContent = $('len').value + ' s';
+  }
+  const redraw = () => draw();
+
+  // Library cover: frame, then the name on one line in the middle.
+  function drawCoverText() {
     if ($('border').checked) {
       ctx.save();
       ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 6;
@@ -272,13 +359,83 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
     ctx.fillStyle = '#fff';
     ctx.fillText(text, W / 2, H / 2 + size * 0.04);
     ctx.restore();
-
-    $('sizeOut').textContent = $('size').value;
-    $('zoomOut').textContent = $('zoom').value + '%';
-    $('dimOut').textContent = $('dim').value + '%';
-    $('lenOut').textContent = $('len').value + ' s';
   }
-  const redraw = () => draw();
+
+  // Split the title into lines that fit maxW, shrinking the text until it fits in 3 lines.
+  function wrapTitle(text, size, maxW, font) {
+    const words = text.split(/\s+/).filter(Boolean);
+    for (; size > 12; size = Math.floor(size * 0.92)) {
+      ctx.font = font(size);
+      if (words.some(w => ctx.measureText(w).width > maxW)) continue;
+      const lines = [];
+      for (const w of words) {
+        const last = lines[lines.length - 1];
+        if (last && ctx.measureText(last + ' ' + w).width <= maxW) lines[lines.length - 1] = last + ' ' + w;
+        else lines.push(w);
+      }
+      if (lines.length <= 3) return { lines, size };
+    }
+    ctx.font = font(size);
+    return { lines: [words.join(' ')], size };
+  }
+
+  // Poster: the same frame scaled to the portrait size, a soft shade at the bottom,
+  // and the title wrapped onto up to 3 lines in the lower part of the poster.
+  function drawPosterText() {
+    const k = W / 540; // keeps the frame and text in proportion with the cover's
+    const g = ctx.createLinearGradient(0, H * 0.5, 0, H);
+    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.55)');
+    ctx.fillStyle = g; ctx.fillRect(0, H * 0.5, W, H * 0.5);
+
+    if ($('border').checked) {
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 6 * k;
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 4 * k;
+      roundRect(24 * k, 24 * k, W - 48 * k, H - 48 * k, 22 * k); ctx.stroke();
+      ctx.restore();
+    }
+
+    const [weight, family] = $('font').value.split('|');
+    const text = ($('title').value || '').toUpperCase().trim();
+    if (!text) return;
+    const font = sz => `${weight} ${sz}px "${family}", Georgia, serif`;
+    const { lines, size } = wrapTitle(text, Math.round(+$('size').value * k * 0.75), W - 110 * k, font);
+    const lh = size * 1.02, mid = H * 0.8;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.save();
+    if ($('shadow').checked) { ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 14 * k; ctx.shadowOffsetY = 3 * k; }
+    ctx.fillStyle = '#fff';
+    lines.forEach((line, i) => ctx.fillText(line, W / 2, mid + (i - (lines.length - 1) / 2) * lh + size * 0.04));
+    ctx.restore();
+  }
+
+  // ---- Cover or poster ----
+  const titles = { cover: $('title').value, poster: '' };
+  function setMode(m) {
+    if (m === mode) return;
+    titles[mode] = $('title').value;
+    mode = m;
+    [W, H] = SIZES[m];
+    cv.width = W; cv.height = H;
+    cv.style.aspectRatio = `${W} / ${H}`;
+    cv.classList.toggle('portrait', m === 'poster');
+    cv.setAttribute('aria-label', m === 'poster' ? 'Poster preview' : 'Cover preview');
+    sample.width = W; sample.height = H; paintSample();
+    state.ox = state.oy = 0;
+    const poster = m === 'poster';
+    $('title').value = titles[m];
+    $('title').placeholder = poster ? 'Film or series title' : '';
+    $('titleLbl').textContent = poster ? 'Film or series title' : 'Library name';
+    $('presets').hidden = poster;
+    $('make').textContent = makeLabel();
+    $('howtoCover').hidden = poster; $('howtoPoster').hidden = !poster;
+    $('out').hidden = true;
+    $('jfImg').hidden = true; jfMsg('');
+    jfShowMode();
+    redraw();
+  }
+  const makeLabel = () => mode === 'poster' ? 'Make animated poster' : 'Make animated cover';
+  document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', () => r.checked && setMode(r.value)));
 
   // Fonts load async; redraw once each is ready.
   const fams = ['700 20px "Bodoni Moda"', '800 20px "Playfair Display"', '800 20px "Cinzel"', '400 20px "Bebas Neue"', '700 20px "Oswald"'];
@@ -570,10 +727,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
     const z = $('zoom'); z.value = Math.max(100, Math.min(300, +z.value - Math.sign(e.deltaY) * 10)); redraw();
   }, { passive: false });
 
-  // ---- Animated WebP export ----
-  // Each frame is encoded by the browser as a still WebP, then the frames are
+  // ---- Animated WebP and GIF export ----
+  // WebP: each frame is encoded by the browser as a still WebP, then the frames are
   // packed into one animated WebP (VP8X + ANIM + ANMF chunks).
-  const OW = 640, OH = 360, FPS = 12, FADE = 4;
+  // GIF: each frame gets its own 256-colour palette and is added with gifenc (web/gifenc.js).
+  // GIFs are smaller in size and frame rate to keep the file sensible: Jellyfin sends GIFs to
+  // its apps untouched, so they stay animated, while WebPs are turned into still pictures.
+  const OUTPUT = {
+    cover:  { webp: { w: 640, h: 360, fps: 12 }, gif: { w: 480, h: 270, fps: 10 } },
+    poster: { webp: { w: 400, h: 600, fps: 12 }, gif: { w: 320, h: 480, fps: 10 } },
+  };
+  const FADE = 4;
+  const fmtSize = n => n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`;
+  let lastResult = null; // { blob, mode, format } of the newest animation, for Send to Jellyfin
 
   const concat = arrs => {
     const out = new Uint8Array(arrs.reduce((n, a) => n + a.length, 0));
@@ -608,11 +774,41 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
     return new Blob([concat([ascii('RIFF'), new Uint8Array(le(body.length, 4)), body])], { type: 'image/webp' });
   }
 
+  function webpEncoder(w, h, ms) {
+    const frames = []; let alpha = false;
+    return {
+      add(canvas) {
+        const url = canvas.toDataURL('image/webp', 0.78);
+        if (!url.startsWith('data:image/webp')) throw new Error('nowebp');
+        const bin = atob(url.slice(url.indexOf(',') + 1));
+        const parts = frameChunks(Uint8Array.from(bin, c => c.charCodeAt(0)));
+        if (parts.some(c => c.id === 'ALPH')) alpha = true;
+        frames.push(concat(parts.map(c => c.data)));
+      },
+      finish: () => muxWebP(frames, w, h, ms, alpha),
+    };
+  }
+
+  function gifEncoder(w, h, ms) {
+    if (!window.gifenc) throw new Error('nogif');
+    const { GIFEncoder, quantize, applyPalette } = window.gifenc;
+    const gif = GIFEncoder();
+    return {
+      add(canvas) {
+        const { data } = canvas.getContext('2d').getImageData(0, 0, w, h);
+        const palette = quantize(data, 256, { format: 'rgb565' });
+        gif.writeFrame(applyPalette(data, palette, 'rgb565'), w, h, { palette, delay: ms, repeat: 0 });
+      },
+      finish() { gif.finish(); return new Blob([gif.bytes()], { type: 'image/gif' }); },
+    };
+  }
+
   $('make').addEventListener('click', async () => {
     const btn = $('make'), err = $('err'), rail = document.querySelector('.rail');
     btn.disabled = true; err.hidden = true;
     rail.inert = true; // the files can't be swapped out while their frames are being made
     if (state.pool.length && $('autoShuffle').checked) { btn.textContent = 'Picking random files…'; await pickFromPool(); }
+    const format = $('format').value, { w: OW, h: OH, fps: FPS } = OUTPUT[mode][format];
     const len = +$('len').value, total = Math.round(len * FPS), ms = Math.round(1000 / FPS);
     const list = state.sources.length ? state.sources : [sampleSource];
     const k = list.length;
@@ -621,12 +817,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
     const counts = list.map((_, i) => i < k - 1 ? Math.floor(total / k) : total - Math.floor(total / k) * (k - 1));
 
     const oc = document.createElement('canvas'); oc.width = OW; oc.height = OH;
-    const octx = oc.getContext('2d');
+    const octx = oc.getContext('2d', { willReadFrequently: format === 'gif' });
     const prev = document.createElement('canvas'); prev.width = OW; prev.height = OH;
     const pctx = prev.getContext('2d');
-    const frames = []; let alpha = false, made = 0;
+    let made = 0;
 
     try {
+      const enc = format === 'gif' ? gifEncoder(OW, OH, ms) : webpEncoder(OW, OH, ms);
       for (let s = 0; s < k; s++) {
         const src = list[s], n = counts[s];
         const start = !src.isVideo ? 0 : src.start == null ? randomTime(src.el, n / FPS) : Math.max(0, Math.min(src.start, src.el.duration - n / FPS));
@@ -643,37 +840,179 @@ button:focus-visible, input:focus-visible, select:focus-visible, .drop:focus-vis
             octx.globalAlpha = 1;
           }
 
-          const url = oc.toDataURL('image/webp', 0.78);
-          if (!url.startsWith('data:image/webp')) throw new Error('nowebp');
-          const bin = atob(url.slice(url.indexOf(',') + 1));
-          const parts = frameChunks(Uint8Array.from(bin, c => c.charCodeAt(0)));
-          if (parts.some(c => c.id === 'ALPH')) alpha = true;
-          frames.push(concat(parts.map(c => c.data)));
+          enc.add(oc);
           made++;
           btn.textContent = `Making frame ${made} of ${total}…`;
           await new Promise(r => setTimeout(r, 0));
         }
         pctx.drawImage(oc, 0, 0); // remember this clip's last frame for the next fade
       }
-      const blob = muxWebP(frames, OW, OH, ms, alpha);
+      const blob = enc.finish();
+      lastResult = { blob, mode, format };
       const img = $('outImg');
+      img.classList.toggle('portrait', mode === 'poster');
       if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
       img.src = URL.createObjectURL(blob);
       $('dl').href = img.src;
-      $('dl').download = (($('title').value || 'cover').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'cover') + '.webp';
-      $('outInfo').textContent = `${OW}×${OH}, ${len} seconds, ${k} clip${k > 1 ? 's' : ''}, ${(blob.size / 1024 / 1024).toFixed(1)} MB. Click Make again for different random moments.`;
+      $('dl').download = (($('title').value || mode).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || mode) + '.' + format;
+      $('dl').textContent = `Download animated ${mode} (${format.toUpperCase()})`;
+      const big = blob.size > 5 * 1024 * 1024 ? ' That’s quite big: a shorter animation makes a smaller file.' : '';
+      $('outInfo').textContent = `${format.toUpperCase()}, ${OW}×${OH}, ${len} seconds, ${k} clip${k > 1 ? 's' : ''}, ${fmtSize(blob.size)}.${big} Click Make again for different random moments.`;
       $('out').hidden = false;
       img.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'nearest' });
     } catch (e) {
       err.textContent = e.message === 'nowebp'
-        ? 'This browser can’t make WebP images. Open this page in Edge, Chrome or Firefox.'
+        ? 'This browser can’t make WebP images. Choose GIF, or open this page in Edge, Chrome or Firefox.'
+        : e.message === 'nogif' ? 'The GIF maker (gifenc.js) didn’t load. Reload the page and try again.'
         : 'Something went wrong making the animation: ' + e.message;
       err.hidden = false;
     } finally {
-      btn.disabled = false; btn.textContent = 'Make animated cover'; rail.inert = false;
+      btn.disabled = false; btn.textContent = makeLabel(); rail.inert = false;
       redraw();
     }
   });
+
+  // ---- Send to Jellyfin ----
+  // The container passes /jellyfin/ on to the JELLYFIN_URL it was started with, so the
+  // browser only ever talks to this page's own address. The API key stays in this browser.
+  const JF = 'jellyfin/', KEY_STORE = 'libraryCoverMaker.jellyfinKey';
+  const jf = { ready: false, libs: [], item: null };
+  const store = {
+    get() { try { return localStorage.getItem(KEY_STORE) || ''; } catch { return ''; } },
+    set(v) { try { v ? localStorage.setItem(KEY_STORE, v) : localStorage.removeItem(KEY_STORE); } catch {} },
+  };
+
+  function jfMsg(text, kind) {
+    const m = $('jfMsg');
+    m.textContent = text; m.className = 'msg' + (kind ? ' ' + kind : ''); m.hidden = !text;
+  }
+
+  async function jfFetch(path, opts = {}) {
+    const key = $('jfKey').value.trim();
+    const r = await fetch(JF + path, {
+      ...opts,
+      headers: { Authorization: `MediaBrowser Token="${key}"`, 'X-Emby-Token': key, ...(opts.headers || {}) },
+    });
+    if (!r.ok) {
+      const why = r.status === 401 || r.status === 403 ? 'Jellyfin didn’t accept the API key. Check it under Dashboard → API Keys.'
+        : r.status === 413 ? 'The file is too big for Jellyfin to take. Try a shorter animation.'
+        : r.status === 502 || r.status === 504 ? 'Can’t reach Jellyfin at the address in JELLYFIN_URL.'
+        : `Jellyfin replied with an error (${r.status}).`;
+      throw new Error(why);
+    }
+    return r;
+  }
+
+  function jfShowMode() {
+    $('jfLibWrap').hidden = !jf.ready || mode !== 'cover';
+    $('jfItemWrap').hidden = !jf.ready || mode !== 'poster';
+  }
+
+  async function jfCheckServer() {
+    let r;
+    try { r = await fetch(JF + 'System/Info/Public'); }
+    catch { $('jfStatus').textContent = 'Send to Jellyfin works when this page is opened from the Library Cover Maker container. You can still download the file and upload it in Jellyfin yourself.'; return; }
+    if (r.status === 503) {
+      $('jfStatus').innerHTML = 'To send covers and posters straight to Jellyfin, start this container with <code>JELLYFIN_URL</code> set to your Jellyfin address, such as <code>http://192.168.1.10:8096</code>. Until then, download the file and upload it in Jellyfin yourself.';
+      return;
+    }
+    let info = null;
+    try { if (r.ok) info = await r.json(); } catch {}
+    if (!info || !info.Version) {
+      $('jfStatus').textContent = 'Can’t reach Jellyfin at the address in JELLYFIN_URL. Check the address and that Jellyfin is running, then reload this page.';
+      return;
+    }
+    $('jfStatus').textContent = `Found ${info.ServerName || 'Jellyfin'} (Jellyfin ${info.Version}).`;
+    $('jfBody').hidden = false;
+    $('jfKey').value = store.get();
+    if ($('jfKey').value) jfConnect();
+  }
+
+  async function jfConnect() {
+    const key = $('jfKey').value.trim();
+    if (!key) { jfMsg('Paste an API key first.', 'bad'); return; }
+    jfMsg('Connecting…');
+    try {
+      const libs = await (await jfFetch('Library/VirtualFolders')).json();
+      store.set(key);
+      jf.libs = libs.filter(l => l.ItemId);
+      jf.ready = true;
+      const sel = $('jfLib');
+      sel.innerHTML = '<option value="">Choose a library…</option>';
+      for (const l of jf.libs) { const o = document.createElement('option'); o.value = l.ItemId; o.textContent = l.Name; sel.appendChild(o); }
+      jfMsg(`Connected. ${jf.libs.length} librar${jf.libs.length === 1 ? 'y' : 'ies'} found.`, 'ok');
+    } catch (e) {
+      jf.ready = false;
+      jfMsg(e.message, 'bad');
+    }
+    jfShowMode();
+  }
+  $('jfConnect').addEventListener('click', jfConnect);
+  $('jfKey').addEventListener('keydown', e => { if (e.key === 'Enter') jfConnect(); });
+
+  // Choosing a library fills in its name, ready to make its cover.
+  $('jfLib').addEventListener('change', () => {
+    const lib = jf.libs.find(l => l.ItemId === $('jfLib').value);
+    if (lib) { $('title').value = lib.Name.toUpperCase(); redraw(); }
+  });
+
+  $('jfSearchForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const q = $('jfSearch').value.trim(), ul = $('jfResults');
+    if (!q) return;
+    ul.innerHTML = '<li class="hint">Searching…</li>';
+    try {
+      const res = await (await jfFetch(`Items?searchTerm=${encodeURIComponent(q)}&IncludeItemTypes=Movie,Series&Recursive=true&Limit=20&Fields=ProductionYear`)).json();
+      const items = res.Items || [];
+      ul.innerHTML = items.length ? '' : '<li class="hint">Nothing found with that name.</li>';
+      for (const it of items) {
+        const li = document.createElement('li'), b = document.createElement('button');
+        b.type = 'button'; b.setAttribute('aria-pressed', 'false');
+        b.innerHTML = '<span class="nm"></span> <span class="sub"></span>';
+        b.querySelector('.nm').textContent = it.Name;
+        b.querySelector('.sub').textContent = [it.ProductionYear, it.Type === 'Series' ? 'Series' : 'Film'].filter(Boolean).join(' · ');
+        b.addEventListener('click', () => {
+          jf.item = it;
+          ul.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+          $('title').value = it.Name.toUpperCase(); redraw();
+        });
+        li.appendChild(b); ul.appendChild(li);
+      }
+    } catch (err) { ul.innerHTML = ''; jfMsg(err.message, 'bad'); }
+  });
+
+  const blobToBase64 = blob => new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result).slice(String(fr.result).indexOf(',') + 1));
+    fr.onerror = () => rej(fr.error);
+    fr.readAsDataURL(blob);
+  });
+
+  // Jellyfin takes a new image as base64 text in the body, with the picture's own type.
+  async function jfSend(id, name, what, btn) {
+    if (!lastResult || lastResult.mode !== mode) { jfMsg(`Make the ${what} first, then send it.`, 'bad'); return; }
+    const { blob, format } = lastResult;
+    btn.disabled = true; jfMsg(`Sending to ${name}…`); $('jfImg').hidden = true;
+    try {
+      await jfFetch(`Items/${id}/Images/Primary`, { method: 'POST', headers: { 'Content-Type': blob.type }, body: await blobToBase64(blob) });
+      const still = format === 'webp' ? ' It’s a WebP, so the Jellyfin apps will show it as a still picture; make a GIF to keep it moving there.' : '';
+      jfMsg(`Done: ${name} now uses this ${what} as its image (${fmtSize(blob.size)}). Refresh Jellyfin to see it.${still}`, 'ok');
+      $('jfImg').src = `${JF}Items/${id}/Images/Primary?t=${Date.now()}`;
+      $('jfImg').hidden = false;
+    } catch (e) {
+      jfMsg(`Couldn’t send it: ${e.message}`, 'bad');
+    } finally { btn.disabled = false; }
+  }
+  $('jfSendLib').addEventListener('click', () => {
+    const lib = jf.libs.find(l => l.ItemId === $('jfLib').value);
+    if (!lib) { jfMsg('Choose a library first.', 'bad'); return; }
+    jfSend(lib.ItemId, lib.Name, 'cover', $('jfSendLib'));
+  });
+  $('jfSendItem').addEventListener('click', () => {
+    if (!jf.item) { jfMsg('Search for the film or series and click it first.', 'bad'); return; }
+    jfSend(jf.item.Id, jf.item.Name, 'poster', $('jfSendItem'));
+  });
+  jfCheckServer();
 })();
 </script>
 
