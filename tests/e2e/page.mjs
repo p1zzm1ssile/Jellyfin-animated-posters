@@ -402,7 +402,9 @@ export async function pageChecks(ctx) {
 /** Signs in through Jellyfin's login form and opens the plugin's page from the Dashboard's side menu. Everything
  *  that goes wrong on the page from then on is collected in `problems`. */
 async function openPage(browser, { JF, ADMIN, problems }) {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
+    // A fixed language: GitHub's runner otherwise hands the browser "en-us@posix", which Jellyfin's web app can't
+    // format numbers with.
+    const context = await browser.newContext({ viewport: { width: 1400, height: 1000 }, locale: 'en-GB' });
     const page = await context.newPage();
     const jellyfinOwn = (text) => /\/socket|Sessions\/Capabilities/.test(text);
     const cancelledQuery = (text) => /^\S+: CancelledError\b/.test(text) && /tanstack\.query-core/.test(text);

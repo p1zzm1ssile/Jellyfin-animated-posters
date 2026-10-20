@@ -1,0 +1,222 @@
+name: Release Medic Posters
+
+# Push a tag like posters-v1.3.2 to check, test, build and release Medic Posters:
+#   posters-v1.3.2  ->  checks the tag, runs the tests, builds Medic Posters 1.3.2.0, creates the GitHub
+#                       release and adds the version to manifest.json beside Jellyfin Animated Posters
+#
+# Before tagging, raise <Version> in Jellyfin.Plugin.MedicPosters/Jellyfin.Plugin.MedicPosters.csproj to
+# 1.3.2.0, give Jellyfin.Plugin.MedicPosters/CHANGELOG.md a "## [1.3.2]" section, and merge both. Then tag
+# the merged commit, or make the release on GitHub's Releases page with that tag.
+# Jellyfin Animated Posters keeps release.yml and its v1.x.x tags; this file doesn't touch them. Medic Posters
+# releases are never marked "Latest", so the repository page keeps showing Jellyfin Animated Posters.
+on:
+  push:
+    tags:
+      - 'posters-v*'
+
+# The jobs only read the code. The release job below is the one that may write.
+permissions:
+  contents: read
+
+# What the plugin catalogue shows, written to manifest.json by scripts/update_manifest.py.
+# Every name here starts with PLUGIN_ on purpose: MSBuild reads environment variables as properties,
+# so a plain DESCRIPTION would end up in the DLL as its assembly description.
+env:
+  PLUGIN_PROJECT: 'Jellyfin.Plugin.MedicPosters/Jellyfin.Plugin.MedicPosters.csproj'
+  PLUGIN_CHANGELOG: 'Jellyfin.Plugin.MedicPosters/CHANGELOG.md'
+  PLUGIN_DLL: 'Jellyfin.Plugin.MedicPosters.dll'
+  PLUGIN_FONTS_DIR: 'Jellyfin.Plugin.MedicPosters/Fonts'
+  # The same ID as when it was in Jellyfin Medic, so servers that have it see these versions as updates.
+  PLUGIN_GUID: 'f8a6666f-5278-45ae-8e5d-abcec99de310'
+  PLUGIN_NAME: 'Medic Posters'
+  PLUGIN_OWNER: 'p1zzm1ssile'
+  PLUGIN_CATEGORY: 'General'
+  PLUGIN_TARGET_ABI: '12.0.0.0'   # built against Jellyfin 12.0.0
+  PLUGIN_DESCRIPTION: 'Animated posters for films and series, and animated library covers, made from moments of your videos.'
+  PLUGIN_OVERVIEW: "Small animated GIF posters for films and series, and wide animated covers for libraries, cut from moments of your videos with the title in a big serif font and a rounded white frame. Each item's own picture is kept and can be put back."
+  # A backslash at the end of a line inside double quotes joins the next line with no space (YAML).
+  PLUGIN_IMAGE: "https://raw.githubusercontent.com/p1zzm1ssile/Jellyfin-animated-posters/main/\
+    Jellyfin.Plugin.MedicPosters/thumb.png"
+
+jobs:
+  # Fast, so a wrong tag fails here in seconds and the tests never start for it.
+  check:
+    name: Check the tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      version4: ${{ steps.meta.outputs.version4 }}
+      zip: ${{ steps.meta.outputs.zip }}
+    steps:
+      - name: Check out the tagged code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check the tag and the changelog
+        id: meta
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#posters-v}"
+          # Three numbers without leading zeros: the version ends up in file names, commands and the manifest.
+          if ! [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Tag must look like posters-v1.2.3, with no leading zeros (got $GITHUB_REF_NAME)"
+            exit 1
+          fi
+          # The tag must sit on the code for that version. The fourth part is always 0.
+          HAVE="$(grep -oP '(?<=<Version>)[^<]+' "$PLUGIN_PROJECT" | head -1)"
+          if [ "$HAVE" != "$VERSION.0" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME needs <Version>$VERSION.0</Version> in $PLUGIN_PROJECT, but this" \
+              "commit has $HAVE. Merge the release first, then tag the merged commit."
+            exit 1
+          fi
+          # And it must be on main: a branch that already has the new version but isn't merged would pass the
+          # check above.
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME is on a commit that isn't on main." \
+              "Merge first, then tag the merged commit."
+            exit 1
+          fi
+          if ! python3 scripts/changelog_section.py "$PLUGIN_CHANGELOG" "$VERSION" > /dev/null; then
+            echo "::error::$PLUGIN_CHANGELOG has no section for $VERSION. Add it, merge, then tag."
+            exit 1
+          fi
+          {
+            echo "version=$VERSION"
+            echo "version4=$VERSION.0"
+            echo "zip=MedicPosters-v$VERSION.zip"
+          } >> "$GITHUB_OUTPUT"
+
+  # Unit and end-to-end tests: nothing is released or added to the manifest unless they pass.
+  tests:
+    needs: check
+    uses: ./.github/workflows/tests.yml
+
+  release:
+    name: Build and release
+    needs: [check, tests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write   # creates the GitHub release and pushes manifest.json to main
+    # Shared with release.yml, so two manifest.json pushes never race; "queue: max" keeps every waiting run in line.
+    concurrency:
+      group: manifest-update
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - name: Check out the tagged code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Write the release notes
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.check.outputs.version }}
+        run: python3 scripts/changelog_section.py "$PLUGIN_CHANGELOG" "$RELEASE_VERSION" > CHANGES.md
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        shell: bash
+        env:
+          PLUGIN_VERSION: ${{ needs.check.outputs.version4 }}
+        run: |
+          dotnet publish "$PLUGIN_PROJECT" -c Release -o out \
+            -p:JellyfinTarget=12 \
+            -p:Version="$PLUGIN_VERSION" \
+            -p:AssemblyVersion="$PLUGIN_VERSION" \
+            -p:FileVersion="$PLUGIN_VERSION"
+
+      # The fonts travel inside the DLL; their license texts go in the zip too, as the SIL Open Font License asks.
+      - name: Package
+        id: package
+        shell: bash
+        env:
+          # Not called ZIP: zip reads that variable as extra command line options.
+          ZIP_FILE: ${{ needs.check.outputs.zip }}
+        run: |
+          if [ ! -f "out/$PLUGIN_DLL" ]; then
+            echo "::error::The build did not produce out/$PLUGIN_DLL."
+            exit 1
+          fi
+          shopt -s nullglob
+          licenses=("$PLUGIN_FONTS_DIR"/*-OFL.txt)
+          if [ ${#licenses[@]} -eq 0 ]; then
+            echo "::error::No *-OFL.txt font licenses in $PLUGIN_FONTS_DIR."
+            exit 1
+          fi
+          zip -j "$ZIP_FILE" "out/$PLUGIN_DLL" "${licenses[@]}"
+          unzip -Z1 "$ZIP_FILE"
+          echo "md5=$(md5sum "$ZIP_FILE" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Create the GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ needs.check.outputs.version }}
+          ZIP_FILE: ${{ needs.check.outputs.zip }}
+          MD5: ${{ steps.package.outputs.md5 }}
+        run: |
+          { cat CHANGES.md; echo; echo "MD5 checksum: \`$MD5\`"; } > RELEASE_NOTES.md
+          # The release may already exist if it was made on GitHub's Releases page (which creates the
+          # tag): then add the zip to it and fill in its title and notes instead.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$ZIP_FILE" --clobber
+            gh release edit "$GITHUB_REF_NAME" --title "$PLUGIN_NAME $RELEASE_VERSION" \
+              --notes-file RELEASE_NOTES.md --latest=false
+          else
+            gh release create "$GITHUB_REF_NAME" "$ZIP_FILE" --verify-tag \
+              --title "$PLUGIN_NAME $RELEASE_VERSION" --notes-file RELEASE_NOTES.md --latest=false
+          fi
+
+      - name: Add this version to manifest.json on main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLUGIN_VERSION: ${{ needs.check.outputs.version4 }}
+          ZIP_FILE: ${{ needs.check.outputs.zip }}
+          MD5: ${{ steps.package.outputs.md5 }}
+        run: |
+          # Only now does git get the token: nothing runs after this step.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main
+          python3 scripts/update_manifest.py \
+            --guid "$PLUGIN_GUID" \
+            --name "$PLUGIN_NAME" \
+            --version "$PLUGIN_VERSION" \
+            --abi "$PLUGIN_TARGET_ABI" \
+            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${ZIP_FILE}" \
+            --checksum "$MD5" \
+            --changelog-file CHANGES.md \
+            --owner "$PLUGIN_OWNER" \
+            --category "$PLUGIN_CATEGORY" \
+            --description "$PLUGIN_DESCRIPTION" \
+            --overview "$PLUGIN_OVERVIEW" \
+            --image-url "$PLUGIN_IMAGE"
+          git add manifest.json
+          git commit -m "Add $PLUGIN_NAME $PLUGIN_VERSION to manifest.json"
+          # Fail if no push gets through, instead of ending green on the last pull's status.
+          for attempt in 1 2 3; do
+            if git push origin main; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              git pull --rebase origin main
+            fi
+          done
+          echo "::error::Couldn't push manifest.json to main after 3 tries, so this release isn't in the" \
+            "manifest yet. Re-run this job to try again."
+          exit 1

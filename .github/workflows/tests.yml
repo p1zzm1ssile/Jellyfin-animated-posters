@@ -95,7 +95,8 @@ jobs:
       - name: Pull the Alpine image for webpinfo
         run: docker pull --quiet alpine:3.22
 
+      # page.mjs loads Playwright with require(), which looks in NODE_PATH.
       - name: Run tests
         env:
-          PLAYWRIGHT_MODULE: ${{ runner.temp }}/pw/node_modules/playwright
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
         run: bash tests/e2e/run.sh
