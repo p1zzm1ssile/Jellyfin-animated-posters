@@ -3,7 +3,7 @@ using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.MedicPosters.Configuration;
 
-/// <summary>Medic Posters' settings.</summary>
+/// <summary>Animated Film Posters' settings.</summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
     /// <summary>Libraries to make posters (and covers) for. Empty: every film, TV, home video and music video library.</summary>

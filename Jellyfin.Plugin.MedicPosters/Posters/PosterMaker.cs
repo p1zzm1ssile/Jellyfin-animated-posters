@@ -139,13 +139,13 @@ public class PosterMaker
             if (exit != 0 && clips.Any(c => c.Hdr))
             {
                 // An FFmpeg without HDR conversion: a washed-out poster beats no poster.
-                _logger.LogInformation("Medic Posters: HDR conversion failed for {Title}, trying without it", title);
+                _logger.LogInformation("Animated Film Posters: HDR conversion failed for {Title}, trying without it", title);
                 (exit, error) = await RunAsync(ffmpeg, work, BuildArgs(clips.Select(c => c with { Hdr = false }).ToList(), spec, temp), ct).ConfigureAwait(false);
             }
 
             if (exit != 0 || !File.Exists(temp) || new FileInfo(temp).Length == 0)
             {
-                _logger.LogWarning("Medic Posters: FFmpeg couldn't make a poster for {Title} from {Paths} (exit {Exit}): {Error}", title, string.Join(", ", clips.Select(c => c.Path).Distinct()), exit, error);
+                _logger.LogWarning("Animated Film Posters: FFmpeg couldn't make a poster for {Title} from {Paths} (exit {Exit}): {Error}", title, string.Join(", ", clips.Select(c => c.Path).Distinct()), exit, error);
                 return exit == -1 ? "FFmpeg took too long and was stopped." : "FFmpeg couldn't read the video: " + LastLine(error);
             }
 

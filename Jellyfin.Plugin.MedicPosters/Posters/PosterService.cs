@@ -34,7 +34,7 @@ public class RunProgress
 
 /// <summary>
 /// Finds the films, series and libraries, makes their posters and covers and swaps them in, and puts their own
-/// pictures back. An item's own poster file is never changed or deleted: Medic Posters only points Jellyfin at
+/// pictures back. An item's own poster file is never changed or deleted: Animated Film Posters only points Jellyfin at
 /// another picture, and remembers the old one.
 /// </summary>
 public class PosterService
@@ -309,7 +309,7 @@ public class PosterService
             int toMake = redo ? jobs.Count : jobs.Count(j => _store.Read(s => s.Posters.GetValueOrDefault(j.Item1.Id)) is null);
             int worked = 0;
             double workedSeconds = 0;
-            _logger.LogInformation("Medic Posters: checking {Count} titles and libraries{Redo}", jobs.Count, redo ? ", making every one again" : string.Empty);
+            _logger.LogInformation("Animated Film Posters: checking {Count} titles and libraries{Redo}", jobs.Count, redo ? ", making every one again" : string.Empty);
 
             for (int i = 0; i < jobs.Count; i++)
             {
@@ -317,7 +317,7 @@ public class PosterService
                 var (item, kind) = jobs[i];
                 double? left = worked == 0 ? null : workedSeconds / worked * Math.Max(1, toMake - worked);
                 _progress = new RunProgress { Total = jobs.Count, Done = i, Current = item.Name, SecondsLeft = left };
-                // A metadata refresh may have swapped the item's own poster back in while Medic Posters wasn't watching.
+                // A metadata refresh may have swapped the item's own poster back in while Animated Film Posters wasn't watching.
                 await KeepOursAsync(item.Id, ct).ConfigureAwait(false);
                 var record = _store.Read(s => s.Posters.GetValueOrDefault(item.Id));
                 string? current = (_libraryManager.GetItemById(item.Id) ?? item).GetImageInfo(ImageType.Primary, 0)?.Path;
@@ -362,7 +362,7 @@ public class PosterService
             _store.Update(s => s.LastRun = summary);
             _progress = null;
             _running.Release();
-            _logger.LogInformation("Medic Posters: made {Made}, failed {Failed}, left {LeftAlone} alone", summary.Made, summary.Failed, summary.LeftAlone);
+            _logger.LogInformation("Animated Film Posters: made {Made}, failed {Failed}, left {LeftAlone} alone", summary.Made, summary.Failed, summary.LeftAlone);
         }
     }
 
@@ -485,7 +485,7 @@ public class PosterService
     /// <summary>How long a video is in seconds, if known.</summary>
     public static double? Seconds(BaseItem film) => film.RunTimeTicks is > 0 ? film.RunTimeTicks.Value / (double)TimeSpan.TicksPerSecond : null;
 
-    /// <summary>Puts a film's own poster back and deletes Medic's. Returns false if Medic never made one for it.</summary>
+    /// <summary>Puts a film's own poster back and deletes the animated one. Returns false if it never made one for it.</summary>
     public async Task<bool> RestoreAsync(Guid itemId, CancellationToken ct)
     {
         var record = _store.Read(s => s.Posters.GetValueOrDefault(itemId));
@@ -497,7 +497,7 @@ public class PosterService
         if (_libraryManager.GetItemById(itemId) is BaseItem film)
         {
             var current = film.GetImageInfo(ImageType.Primary, 0);
-            // Only undo Medic's own poster: one chosen by hand since then stays.
+            // Only undo the plugin's own poster: one chosen by hand since then stays.
             if (current is null || _store.IsOurs(current.Path))
             {
                 var images = film.ImageInfos.Where(i => i.Type != ImageType.Primary || !_store.IsOurs(i.Path)).ToList();
@@ -539,7 +539,7 @@ public class PosterService
                 }
                 catch (Exception ex) when (ex is IOException or InvalidOperationException)
                 {
-                    _logger.LogError(ex, "Medic Posters: couldn't put back the own picture of {Id}", ids[i]);
+                    _logger.LogError(ex, "Animated Film Posters: couldn't put back the own picture of {Id}", ids[i]);
                 }
             }
 
@@ -554,9 +554,9 @@ public class PosterService
     }
 
     /// <summary>
-    /// Puts Medic's poster back when a metadata refresh has swapped in the film's own poster again (Jellyfin reads
+    /// Puts the animated poster back when a metadata refresh has swapped in the film's own poster again (Jellyfin reads
     /// poster.jpg and the like from the film's folder on every refresh). Any other poster is someone's new choice and
-    /// stays. Returns whether Medic's poster was put back.
+    /// stays. Returns whether the animated poster was put back.
     /// </summary>
     public async Task<bool> KeepOursAsync(Guid itemId, CancellationToken ct)
     {
@@ -575,7 +575,7 @@ public class PosterService
             return false;
         }
 
-        _logger.LogInformation("Medic Posters: a refresh put back {Title}'s own poster; using the animated one again", film.Name);
+        _logger.LogInformation("Animated Film Posters: a refresh put back {Title}'s own poster; using the animated one again", film.Name);
         await UsePosterAsync(film, record.Kind, ours, record.Width, record.Height, record.Frames, ct).ConfigureAwait(false);
         return true;
     }
@@ -588,7 +588,7 @@ public class PosterService
         var current = film.GetImageInfo(ImageType.Primary, 0);
         var existing = _store.Read(s => s.Posters.GetValueOrDefault(film.Id));
 
-        // The film's own poster: the one it has now, unless that's already Medic's.
+        // The film's own poster: the one it has now, unless that's already the animated one.
         SavedImage? original = existing?.Original;
         if (current is not null && !_store.IsOurs(current.Path))
         {

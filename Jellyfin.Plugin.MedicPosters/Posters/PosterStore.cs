@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.MedicPosters.Posters;
 
-/// <summary>A poster or library cover Medic Posters made, and the picture the item had before, so it can be put back.</summary>
+/// <summary>A poster or library cover Animated Film Posters made, and the picture the item had before, so it can be put back.</summary>
 public class PosterRecord
 {
     public Guid ItemId { get; set; }
@@ -29,7 +29,7 @@ public class PosterRecord
     /// <summary>How many frames it has, to estimate the size of the next ones; 0 for records from before 1.2.0.</summary>
     public int Frames { get; set; }
 
-    /// <summary>The film's own poster before Medic Posters replaced it; null if it had none.</summary>
+    /// <summary>The film's own poster before Animated Film Posters replaced it; null if it had none.</summary>
     public SavedImage? Original { get; set; }
 }
 
@@ -70,13 +70,13 @@ public class RunSummary
 
     public int Failed { get; set; }
 
-    /// <summary>Films whose poster was changed outside Medic Posters since it made one, and were left alone.</summary>
+    /// <summary>Films whose poster was changed outside Animated Film Posters since it made one, and were left alone.</summary>
     public int LeftAlone { get; set; }
 
     public bool Cancelled { get; set; }
 }
 
-/// <summary>Everything Medic Posters remembers, in one file.</summary>
+/// <summary>Everything Animated Film Posters remembers, in one file.</summary>
 public class PosterState
 {
     public Dictionary<Guid, PosterRecord> Posters { get; set; } = new();
@@ -115,7 +115,7 @@ public class PosterStore
 
     public string PreviewPath => Path.Combine(_root, "preview.gif");
 
-    /// <summary>Whether a path is one of Medic Posters' own posters.</summary>
+    /// <summary>Whether a path is one of Animated Film Posters' own posters.</summary>
     public bool IsOurs(string? path) =>
         !string.IsNullOrEmpty(path)
         && string.Equals(Path.GetFullPath(Path.GetDirectoryName(path) ?? string.Empty), Path.GetFullPath(Path.Combine(_root, "posters")), StringComparison.OrdinalIgnoreCase);
@@ -165,7 +165,7 @@ public class PosterStore
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             // Keep the damaged file: it holds the only record of the films' own posters.
-            _logger.LogError(ex, "Medic Posters: {Path} couldn't be read; it's kept as posters.json.bad", StatePath);
+            _logger.LogError(ex, "Animated Film Posters: {Path} couldn't be read; it's kept as posters.json.bad", StatePath);
             try { File.Copy(StatePath, StatePath + ".bad", overwrite: true); } catch (IOException) { }
         }
 

@@ -352,7 +352,7 @@ public class PostersController : ControllerBase
         return Json(new { restored = count });
     }
 
-    // Jellyfin's own JSON is PascalCase; the page reads camelCase, like the other Medic plugins.
+    // Jellyfin's own JSON is PascalCase; the page reads camelCase, like the plugin's page.
     private ContentResult Json(object body) =>
         Content(JsonSerializer.Serialize(body, PosterStore.JsonOptions), MediaTypeNames.Application.Json);
 }

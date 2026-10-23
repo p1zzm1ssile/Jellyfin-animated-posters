@@ -68,7 +68,7 @@ public sealed class PosterKeeper : IHostedService, IDisposable
             catch (Exception ex)
             {
                 _pending.TryRemove(film.Id, out _);
-                _logger.LogError(ex, "Medic Posters: couldn't put back the animated poster for {Title}", film.Name);
+                _logger.LogError(ex, "Animated Film Posters: couldn't put back the animated poster for {Title}", film.Name);
             }
         });
     }

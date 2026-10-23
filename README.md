@@ -10,15 +10,15 @@ The project and its original look (the rounded white frame, the big serif name, 
 p1zzm1ssile (Graham). It started as Library Cover Maker, a page in a container, and is now a plugin called Jellyfin
 Animated Posters; the original look is still one click away in the style settings.
 
-This repository also holds **[Medic Posters](#medic-posters)**, animated posters for every film and series, which
-moved here from Jellyfin Medic.
+This repository also holds **[Animated Film Posters](#animated-film-posters)** (formerly Medic Posters), animated posters for every film
+and series, which moved here from Jellyfin Medic.
 
 The plugin needs Jellyfin 12. It runs on a household server with 22 plugins installed; the client table below says
 what has been checked on real devices.
 
 ## Install
 
-Jellyfin Animated Posters has no release yet, so the catalog only lists Medic Posters until its first tagged
+Jellyfin Animated Posters has no release yet, so the catalog only lists Animated Film Posters until its first tagged
 version.
 
 1. In Jellyfin, open **Dashboard**, then **Plugins**, then **Repositories**, and add this repository URL:
@@ -27,7 +27,7 @@ version.
    https://raw.githubusercontent.com/p1zzm1ssile/Jellfin-animated-posters/main/manifest.json
    ```
 
-2. Open the **Catalog**, install **Jellyfin Animated Posters** and/or **Medic Posters**, and restart Jellyfin.
+2. Open the **Catalog**, install **Jellyfin Animated Posters** and/or **Animated Film Posters**, and restart Jellyfin.
 3. Open **Jellyfin Animated Posters** in the Dashboard menu.
 
 ## What it does
@@ -128,11 +128,11 @@ Use the still version for any client that does not animate.
 - The plugin needs Jellyfin 12. Older versions are not supported.
 - The unit tests run on Linux only: they need Fontconfig and fonts with Cyrillic, Hebrew and Arabic.
 
-## Medic Posters
+## Animated Film Posters
 
 An animated poster for every film and series, and an animated cover for every library, in the style of the
 [Library Cover Maker](https://github.com/p1zzm1ssile/Library-Cover-Maker)'s library covers. Set up under
-**Plugins → Medic Posters** (admins only); everyone sees the posters.
+**Plugins → Animated Film Posters** (admins only); everyone sees the posters.
 
 > [!CAUTION]
 > **Animated posters for your whole library are not recommended on Fire TV sticks, smart TVs and other low-end
@@ -169,7 +169,7 @@ An animated poster for every film and series, and an animated cover for every li
   exact moments it's cut from, with a still of each frame. A library of streams, such as IPTV, can take its cover
   from another library's films and keep its own name.
 
-Medic Posters works on Jellyfin 12.0 and later. What's new in each version is in
+Animated Film Posters works on Jellyfin 12.0 and later. What's new in each version is in
 [its changelog](Jellyfin.Plugin.MedicPosters/CHANGELOG.md).
 
 ### Size
@@ -181,17 +181,17 @@ moments and colours, and the preview shows what each choice comes to.
 
 ### Setting it up
 
-1. Add this repository's catalogue (see [Install](#install)), install **Medic Posters** and restart Jellyfin.
-2. Open **Plugins → Medic Posters**, untick any library to leave alone, and press **Preview a poster** or **Preview
+1. Add this repository's catalogue (see [Install](#install)), install **Animated Film Posters** and restart Jellyfin.
+2. Open **Plugins → Animated Film Posters**, untick any library to leave alone, and press **Preview a poster** or **Preview
    a library cover** to try the settings.
 3. Press **Make posters now**, or wait for the nightly run.
 
-### If you had it from Jellyfin Medic
+### If you had Medic Posters from Jellyfin Medic
 
-Medic Posters used to be in the [Jellyfin Medic](https://github.com/p1zzm1ssile/Jellyfin-Medic) repository. It
-keeps its name and ID here, so add this repository's catalogue and the next version arrives as an ordinary update,
+Animated Film Posters used to be called Medic Posters and lived in the [Jellyfin Medic](https://github.com/p1zzm1ssile/Jellyfin-Medic) repository. It
+keeps its ID here, so add this repository's catalogue and the next version arrives as an ordinary update,
 with your posters, covers and settings kept. Versions up to 1.3.1 came from Jellyfin Medic; 1.3.2 and later come
-from here.
+from here, and 1.3.3 renamed it.
 
 ### Building and releasing
 
@@ -208,9 +208,9 @@ built for Jellyfin 12, so a 10.11 server needs one built by hand:
 dotnet publish Jellyfin.Plugin.MedicPosters/Jellyfin.Plugin.MedicPosters.csproj -c Release -o publish/MedicPosters-10.11 -p:JellyfinTarget=10.11
 ```
 
-To release a version, for example 1.3.2: raise `<Version>` in the project file to `1.3.2.0`, give
-[its changelog](Jellyfin.Plugin.MedicPosters/CHANGELOG.md) a `## [1.3.2]` section, merge, then tag the merged commit
-`posters-v1.3.2` (or make the release with that tag on GitHub's Releases page). The **Release Medic Posters**
+To release a version, for example 1.3.3: raise `<Version>` in the project file to `1.3.3.0`, give
+[its changelog](Jellyfin.Plugin.MedicPosters/CHANGELOG.md) a `## [1.3.3]` section, merge, then tag the merged commit
+`posters-v1.3.3` (or make the release with that tag on GitHub's Releases page). The **Release Animated Film Posters**
 workflow runs the tests, builds the zip, fills in the release and adds the version to `manifest.json`.
 
 ## If you ran the container
