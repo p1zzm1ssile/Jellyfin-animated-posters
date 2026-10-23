@@ -5,7 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Jellyfin.Plugin.MedicPosters;
 
-/// <summary>Registers Medic Posters' services. The scheduled task and API controller are discovered by Jellyfin automatically.</summary>
+/// <summary>Registers Animated Film Posters' services. The scheduled task and API controller are discovered by Jellyfin automatically.</summary>
 public class PluginServiceRegistrator : IPluginServiceRegistrator
 {
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)

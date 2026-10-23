@@ -9,7 +9,7 @@ using MediaBrowser.Model.Serialization;
 namespace Jellyfin.Plugin.MedicPosters;
 
 /// <summary>
-/// Medic Posters: animated posters for your films, cut from moments of each film, with its title
+/// Animated Film Posters: animated posters for your films, cut from moments of each film, with its title
 /// in a big serif font and a rounded white frame.
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
@@ -25,7 +25,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public static Plugin? Instance { get; private set; }
 
-    public override string Name => "Medic Posters";
+    public override string Name => "Animated Film Posters";
 
     public override Guid Id => Guid.Parse(PluginGuid);
 
@@ -40,10 +40,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             new PluginPageInfo
             {
                 Name = "MedicPosters",
-                DisplayName = "Medic Posters",
+                DisplayName = "Animated Film Posters",
                 EmbeddedResourcePath = GetType().Namespace + ".Web.posters.html",
 
-                // Adds "Medic Posters" to the Plugins section of the dashboard sidebar.
+                // Adds "Animated Film Posters" to the Plugins section of the dashboard sidebar.
                 EnableInMainMenu = true,
                 MenuIcon = "movie"
             }

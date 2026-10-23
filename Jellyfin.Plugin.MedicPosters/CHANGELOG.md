@@ -1,7 +1,12 @@
-# Medic Posters changelog
+# Animated Film Posters changelog
 
-All notable changes to Medic Posters are recorded here. The newest version is at the top.
+All notable changes to Animated Film Posters (called Medic Posters until 1.3.2) are recorded here. The newest version is at the top.
 Jellyfin Animated Posters, the library covers plugin in this repository, has its own changelog.
+
+## [1.3.3] – 2026-10-23
+
+### Changed
+- **Medic Posters is now called Animated Film Posters**, in the catalogue, the Dashboard menu, its page and Scheduled Tasks. It is the same plugin with the same ID, so it updates in place and keeps your posters, covers and settings.
 
 ## [1.3.2] – 2026-10-20
 

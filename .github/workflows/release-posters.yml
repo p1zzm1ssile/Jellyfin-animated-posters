@@ -1,13 +1,13 @@
-name: Release Medic Posters
+name: Release Animated Film Posters
 
-# Push a tag like posters-v1.3.2 to check, test, build and release Medic Posters:
-#   posters-v1.3.2  ->  checks the tag, runs the tests, builds Medic Posters 1.3.2.0, creates the GitHub
+# Push a tag like posters-v1.3.3 to check, test, build and release Animated Film Posters:
+#   posters-v1.3.3  ->  checks the tag, runs the tests, builds Animated Film Posters 1.3.3.0, creates the GitHub
 #                       release and adds the version to manifest.json beside Jellyfin Animated Posters
 #
 # Before tagging, raise <Version> in Jellyfin.Plugin.MedicPosters/Jellyfin.Plugin.MedicPosters.csproj to
-# 1.3.2.0, give Jellyfin.Plugin.MedicPosters/CHANGELOG.md a "## [1.3.2]" section, and merge both. Then tag
+# 1.3.3.0, give Jellyfin.Plugin.MedicPosters/CHANGELOG.md a "## [1.3.3]" section, and merge both. Then tag
 # the merged commit, or make the release on GitHub's Releases page with that tag.
-# Jellyfin Animated Posters keeps release.yml and its v1.x.x tags; this file doesn't touch them. Medic Posters
+# Jellyfin Animated Posters keeps release.yml and its v1.x.x tags; this file doesn't touch them. Animated Film Posters
 # releases are never marked "Latest", so the repository page keeps showing Jellyfin Animated Posters.
 on:
   push:
@@ -28,7 +28,7 @@ env:
   PLUGIN_FONTS_DIR: 'Jellyfin.Plugin.MedicPosters/Fonts'
   # The same ID as when it was in Jellyfin Medic, so servers that have it see these versions as updates.
   PLUGIN_GUID: 'f8a6666f-5278-45ae-8e5d-abcec99de310'
-  PLUGIN_NAME: 'Medic Posters'
+  PLUGIN_NAME: 'Animated Film Posters'
   PLUGIN_OWNER: 'p1zzm1ssile'
   PLUGIN_CATEGORY: 'General'
   PLUGIN_TARGET_ABI: '12.0.0.0'   # built against Jellyfin 12.0.0

@@ -8,8 +8,8 @@ using MediaBrowser.Model.Tasks;
 namespace Jellyfin.Plugin.MedicPosters.ScheduledTasks;
 
 /// <summary>
-/// Makes posters for films that don't have one yet. Shows up under Scheduled Tasks, so Jellyfin Medic
-/// can move it into your quiet hours like any other task.
+/// Makes posters for films that don't have one yet. Shows up under Scheduled Tasks, so it can be
+/// timed like any other task.
 /// </summary>
 public class MakePostersTask : IScheduledTask
 {
@@ -24,9 +24,9 @@ public class MakePostersTask : IScheduledTask
 
     public string Key => "MedicPostersMake";
 
-    public string Description => "Makes an animated poster for each film that doesn't have one from Medic Posters yet.";
+    public string Description => "Makes an animated poster for each film that doesn't have one from Animated Film Posters yet.";
 
-    public string Category => "Medic Posters";
+    public string Category => "Animated Film Posters";
 
     public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken) =>
         _service.RunAsync(progress, cancellationToken);
