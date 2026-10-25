@@ -182,7 +182,7 @@ public class PosterService
         }
 
         var starts = PosterMaker.MomentStarts(Seconds(item), spec.Moments, spec.MomentSeconds);
-        return (starts.Select(s => new Clip(item.Path, s, IsHdr(item))).ToList(), null);
+        return (starts.Select(s => new Clip(item.Path, s, IsHdr(item), Seconds(item))).ToList(), null);
     }
 
     /// <summary>The moments for a library's cover: one from each of a few random videos in it.</summary>
@@ -272,7 +272,7 @@ public class PosterService
             .Where(v => CantMake(v) is null && v.ExtraType is null)
             .OrderBy(_ => Random.Shared.Next())
             .Take(spec.Moments)
-            .Select(v => new Clip(v.Path, PosterMaker.RandomStart(Seconds(v), spec.MomentSeconds, Random.Shared), IsHdr(v)))
+            .Select(v => new Clip(v.Path, PosterMaker.RandomStart(Seconds(v), spec.MomentSeconds, Random.Shared), IsHdr(v), Seconds(v)))
             .ToList();
     }
 

@@ -42,6 +42,9 @@ public sealed record PosterSpec(
 
     public double FadeSeconds { get; init; } = 0.3;
 
+    /// <summary>Keep the moments with the most movement out of several tried, rather than the first ones spread through.</summary>
+    public bool ActionMoments { get; init; }
+
     public static readonly string[] Positions = { "top", "middle", "bottom" };
 
     /// <summary>The settings as a 2:3 poster spec, with every value kept in a range that makes a sensible GIF.</summary>
@@ -50,7 +53,8 @@ public sealed record PosterSpec(
         int width = Math.Clamp(c.Width / 2 * 2, 120, 600);
         return new PosterSpec(width, width * 3 / 2, Math.Clamp(c.Moments, 1, 6), Math.Clamp(c.MomentTenths, 5, 30) / 10.0,
             Math.Clamp(c.FramesPerSecond, 4, 15), Math.Clamp(c.Colours, 16, 256), c.ShowTitle, c.ShowFrame)
-            .Styled(c.Font, c.TextSize, c.TextPosition, c.TextShadow, c.DarkBand, c.FadeBetween, c.FadeEnd, c.FadeTenths);
+            .Styled(c.Font, c.TextSize, c.TextPosition, c.TextShadow, c.DarkBand, c.FadeBetween, c.FadeEnd, c.FadeTenths)
+            with { ActionMoments = c.ActionMoments };
     }
 
     /// <summary>The settings as a 16:9 library cover spec, the shape of Jellyfin's library cards.</summary>
@@ -59,7 +63,8 @@ public sealed record PosterSpec(
         int width = Math.Clamp(c.CoverWidth / 2 * 2, 240, 960);
         return new PosterSpec(width, width * 9 / 16 / 2 * 2, Math.Clamp(c.CoverMoments, 1, 6), Math.Clamp(c.CoverMomentTenths, 5, 30) / 10.0,
             Math.Clamp(c.CoverFramesPerSecond, 4, 15), Math.Clamp(c.CoverColours, 16, 256), c.CoverShowTitle, c.CoverShowFrame)
-            .Styled(c.CoverFont, c.CoverTextSize, c.CoverTextPosition, c.CoverTextShadow, c.CoverDarkBand, c.CoverFadeBetween, c.CoverFadeEnd, c.CoverFadeTenths);
+            .Styled(c.CoverFont, c.CoverTextSize, c.CoverTextPosition, c.CoverTextShadow, c.CoverDarkBand, c.CoverFadeBetween, c.CoverFadeEnd, c.CoverFadeTenths)
+            with { ActionMoments = c.CoverActionMoments };
     }
 
     private PosterSpec Styled(string? font, int textSize, string? position, bool shadow, bool band, bool fadeBetween, bool fadeEnd, int fadeTenths) => this with
@@ -85,8 +90,11 @@ public sealed record PosterSpec(
     public long EstimateBytes(double bytesPerPixelFrame) => (long)(Width * (double)Height * Frames * bytesPerPixelFrame);
 }
 
-/// <summary>One moment of a poster: which video, where in it to start, and whether it's HDR.</summary>
-public sealed record Clip(string Path, double Start, bool Hdr);
+/// <summary>
+/// One moment of a poster: which video, where in it to start, and whether it's HDR. Length is the video's length for a
+/// moment the plugin placed itself, which may be moved to a busier spot; it's null for one picked by hand.
+/// </summary>
+public sealed record Clip(string Path, double Start, bool Hdr, double? Length = null);
 
 /// <summary>
 /// Makes an animated GIF poster with Jellyfin's own FFmpeg: a short clip from a few moments of the
@@ -131,6 +139,11 @@ public class PosterMaker
         Directory.CreateDirectory(Path.Combine(work, "fonts"));
         try
         {
+            if (spec.ActionMoments)
+            {
+                clips = await ActionClipsAsync(ffmpeg, work, clips, spec, ct).ConfigureAwait(false);
+            }
+
             await File.WriteAllTextAsync(Path.Combine(work, "poster.ass"), BuildAss(spec, title), new UTF8Encoding(false), ct).ConfigureAwait(false);
             await WriteFontAsync(spec.Font.File, Path.Combine(work, "fonts", spec.Font.File), ct).ConfigureAwait(false);
             string temp = Path.Combine(work, "poster.gif");
@@ -189,6 +202,75 @@ public class PosterMaker
             try { Directory.Delete(work, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
     }
+
+    /// <summary>
+    /// Moves the moments the plugin placed itself to the busiest spots: for each video, it tries three spots per moment
+    /// (at most 12, spread from 15% to 75% of the way through), measures how much the picture changes in each, and keeps
+    /// the ones that change most, in the order they come in the video. Fast movement and quick cuts change the picture
+    /// most, so these are mostly action and fight scenes. A video it can't measure keeps its moments.
+    /// </summary>
+    private async Task<IReadOnlyList<Clip>> ActionClipsAsync(string ffmpeg, string work, IReadOnlyList<Clip> clips, PosterSpec spec, CancellationToken ct)
+    {
+        var result = clips.ToList();
+        double probe = Math.Max(spec.MomentSeconds, 1.5);
+        foreach (var video in clips.Select((c, i) => (Clip: c, Index: i)).Where(x => x.Clip.Length is > 0).GroupBy(x => x.Clip.Path))
+        {
+            var moments = video.ToList();
+            var first = moments[0].Clip;
+            var tries = MomentStarts(first.Length, Math.Min(12, moments.Count * 3), spec.MomentSeconds).Distinct().ToList();
+            if (tries.Count <= moments.Count)
+            {
+                continue;
+            }
+
+            var scored = new List<(double Start, double Motion)>();
+            foreach (var start in tries)
+            {
+                var (exit, _) = await RunAsync(ffmpeg, work, MotionArgs(first with { Start = start }, probe, "motion.txt"), ct).ConfigureAwait(false);
+                string file = Path.Combine(work, "motion.txt");
+                if (exit == 0 && File.Exists(file))
+                {
+                    scored.Add((start, Motion(await File.ReadAllTextAsync(file, ct).ConfigureAwait(false))));
+                }
+            }
+
+            var best = BusiestStarts(scored, moments.Count);
+            if (best.Count == moments.Count)
+            {
+                for (int k = 0; k < moments.Count; k++)
+                {
+                    result[moments[k].Index] = moments[k].Clip with { Start = best[k] };
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// FFmpeg's arguments for measuring how much the picture changes over a few seconds from the clip's start: small
+    /// frames, a few a second, with the average change from each frame to the next written to <paramref name="output"/>.
+    /// </summary>
+    public static IReadOnlyList<string> MotionArgs(Clip clip, double seconds, string output) => new[]
+    {
+        "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-ss", Num(clip.Start), "-t", Num(seconds), "-i", clip.Path,
+        "-an", "-sn", "-dn", "-vf", $"scale=96:-2,fps=6,signalstats,metadata=print:key=lavfi.signalstats.YDIF:file={output}", "-f", "null", "-"
+    };
+
+    /// <summary>The average change between frames in FFmpeg's printed YDIF values; 0 when there are none.</summary>
+    public static double Motion(string printed)
+    {
+        var values = printed.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(l => l.StartsWith("lavfi.signalstats.YDIF=", StringComparison.Ordinal))
+            .Select(l => double.TryParse(l["lavfi.signalstats.YDIF=".Length..], NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : double.NaN)
+            .Where(v => !double.IsNaN(v))
+            .ToList();
+        return values.Count == 0 ? 0 : values.Average();
+    }
+
+    /// <summary>The starts of the <paramref name="count"/> busiest spots, in the order they come in the video.</summary>
+    public static IReadOnlyList<double> BusiestStarts(IReadOnlyList<(double Start, double Motion)> scored, int count) =>
+        scored.OrderByDescending(s => s.Motion).Take(count).Select(s => s.Start).OrderBy(s => s).ToList();
 
     /// <summary>FFmpeg's arguments for one still frame at the clip's start.</summary>
     public static IReadOnlyList<string> FrameArgs(Clip clip, int width, string output)

@@ -124,6 +124,7 @@
                             <option value="4">4</option><option value="5">5</option><option value="6">6</option>
                         </select>
                     </label>
+                    <label class="po-check"><input type="checkbox" id="po-action"> Prefer action and fight scenes <span class="po-muted po-small">(tries several spots in each video and keeps the ones with the most movement; slower to make)</span></label>
                     <label class="po-field"><span>Each moment</span>
                         <select id="po-moment-length" class="po-input">
                             <option value="5">0.5 seconds</option><option value="8">0.8 seconds</option><option value="10">1 second</option>
@@ -187,6 +188,7 @@
                             <option value="4">4</option><option value="5">5</option><option value="6">6</option>
                         </select>
                     </label>
+                    <label class="po-check"><input type="checkbox" id="po-cover-action"> Prefer action and fight scenes <span class="po-muted po-small">(tries several spots in each video and keeps the ones with the most movement; slower to make)</span></label>
                     <label class="po-field"><span>Each moment</span>
                         <select id="po-cover-moment-length" class="po-input">
                             <option value="5">0.5 seconds</option><option value="8">0.8 seconds</option><option value="10">1 second</option>
@@ -410,6 +412,7 @@
                     setSelect('po-width', s.width);
                     setSelect('po-moments', s.moments);
                     setSelect('po-moment-length', s.momentTenths);
+                    $('po-action').checked = !!s.actionMoments;
                     setSelect('po-fps', s.framesPerSecond);
                     setSelect('po-colours', s.colours);
                     $('po-covers').checked = !!s.makeLibraryCovers;
@@ -418,6 +421,7 @@
                     setSelect('po-cover-width', s.coverWidth);
                     setSelect('po-cover-moments', s.coverMoments);
                     setSelect('po-cover-moment-length', s.coverMomentTenths);
+                    $('po-cover-action').checked = !!s.coverActionMoments;
                     setSelect('po-cover-fps', s.coverFramesPerSecond);
                     setSelect('po-cover-colours', s.coverColours);
                     fillStyle('po-', s.font, s.textSize, s.textPosition, s.textShadow, s.darkBand, s.fadeBetween, s.fadeEnd, s.fadeTenths);
@@ -459,6 +463,7 @@
                         width: num('po-width'),
                         moments: num('po-moments'),
                         momentTenths: num('po-moment-length'),
+                        actionMoments: $('po-action').checked,
                         framesPerSecond: num('po-fps'),
                         colours: num('po-colours'),
                         showTitle: $('po-title').checked,
@@ -467,6 +472,7 @@
                         coverWidth: num('po-cover-width'),
                         coverMoments: num('po-cover-moments'),
                         coverMomentTenths: num('po-cover-moment-length'),
+                        coverActionMoments: $('po-cover-action').checked,
                         coverFramesPerSecond: num('po-cover-fps'),
                         coverColours: num('po-cover-colours'),
                         coverShowTitle: $('po-cover-title').checked,

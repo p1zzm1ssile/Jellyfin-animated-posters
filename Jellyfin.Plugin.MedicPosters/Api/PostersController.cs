@@ -82,6 +82,7 @@ public class PostersController : ControllerBase
                 fadeBetween = config.FadeBetween,
                 fadeEnd = config.FadeEnd,
                 fadeTenths = config.FadeTenths,
+                actionMoments = config.ActionMoments,
                 coverFont = PosterFonts.Find(config.CoverFont).Key,
                 coverTextSize = config.CoverTextSize,
                 coverTextPosition = config.CoverTextPosition,
@@ -90,6 +91,7 @@ public class PostersController : ControllerBase
                 coverFadeBetween = config.CoverFadeBetween,
                 coverFadeEnd = config.CoverFadeEnd,
                 coverFadeTenths = config.CoverFadeTenths,
+                coverActionMoments = config.CoverActionMoments,
                 custom = config.Custom
             },
             fonts = PosterFonts.All.Select(f => new { key = f.Key, label = f.Label }),
@@ -187,6 +189,7 @@ public class PostersController : ControllerBase
         c.FadeBetween = request.FadeBetween ?? c.FadeBetween;
         c.FadeEnd = request.FadeEnd ?? c.FadeEnd;
         c.FadeTenths = Math.Clamp(request.FadeTenths ?? c.FadeTenths, 1, 10);
+        c.ActionMoments = request.ActionMoments ?? c.ActionMoments;
         c.CoverFont = PosterFonts.Known(request.CoverFont) ? PosterFonts.Find(request.CoverFont).Key : c.CoverFont;
         c.CoverTextSize = Math.Clamp(request.CoverTextSize ?? c.CoverTextSize, 50, 200);
         c.CoverTextPosition = Position(request.CoverTextPosition) ?? c.CoverTextPosition;
@@ -195,6 +198,7 @@ public class PostersController : ControllerBase
         c.CoverFadeBetween = request.CoverFadeBetween ?? c.CoverFadeBetween;
         c.CoverFadeEnd = request.CoverFadeEnd ?? c.CoverFadeEnd;
         c.CoverFadeTenths = Math.Clamp(request.CoverFadeTenths ?? c.CoverFadeTenths, 1, 10);
+        c.CoverActionMoments = request.CoverActionMoments ?? c.CoverActionMoments;
         if (request.Custom is not null)
         {
             c.Custom = Custom(request.Custom, known);
@@ -412,6 +416,8 @@ public class PosterSettingsRequest
 
     public int? FadeTenths { get; set; }
 
+    public bool? ActionMoments { get; set; }
+
     public string? CoverFont { get; set; }
 
     public int? CoverTextSize { get; set; }
@@ -427,6 +433,8 @@ public class PosterSettingsRequest
     public bool? CoverFadeEnd { get; set; }
 
     public int? CoverFadeTenths { get; set; }
+
+    public bool? CoverActionMoments { get; set; }
 
     /// <summary>Every library's and title's own text and moments; the saved ones stay when missing.</summary>
     public PosterCustom[]? Custom { get; set; }

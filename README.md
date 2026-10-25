@@ -164,6 +164,10 @@ An animated poster for every film and series, and an animated cover for every li
 - **Posters and covers separately.** **Make posters now** and **Make library covers now** each make only their own
   kind, and each says how many there are to make and roughly how much space they'll take, worked out from the
   settings on screen and the ones made so far.
+- **Action and fight scenes.** Tick **Prefer action and fight scenes** (posters and covers each have their own box)
+  and, instead of evenly spaced moments, it tries several spots in each video and keeps the ones where the picture
+  moves most. Fast movement and quick cuts are mostly action and fights. Each poster takes a little longer to make.
+  Moments you picked yourself are kept as they are.
 - **Leave libraries out**, such as IPTV ones, by unticking them. Libraries you add later are included.
 - **Your own text and moments.** Give any library's cover or title's poster its own text, and pick the films and the
   exact moments it's cut from, with a still of each frame. Pick a title from **Show list** or by typing any words of
