@@ -3,7 +3,9 @@
 All notable changes to Animated Film Posters (called Medic Posters until 1.3.2) are recorded here. The newest version is at the top.
 Jellyfin Animated Posters, the library covers plugin in this repository, has its own changelog.
 
-## [1.4.0] – 2026-10-25
+## [1.4.1] – 2026-10-25
+
+1.4.0 was never released, so everything below is new in this version.
 
 ### Added
 - **A list of titles to pick from.** Next to each box for choosing a film or series there's **Show list**, which lists them all, and typing in the box narrows the list as you type.
