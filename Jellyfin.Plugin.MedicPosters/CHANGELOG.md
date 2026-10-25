@@ -13,6 +13,9 @@ Jellyfin Animated Posters, the library covers plugin in this repository, has its
 ### Changed
 - **Finding a title is quicker and finds more.** The titles are fetched once and searched on the page, so the list answers as you type. A title is found when every word you type is anywhere in its name or year, in any order, ignoring capitals, accents and punctuation, so `knight dark` finds The Dark Knight and `amelie` finds Amélie.
 
+### Fixed
+- **A series poster gets all its moments.** A series with fewer episodes than moments, such as three episodes and six moments, used to get one moment per episode and so fewer than asked for. It now takes the rest from the same episodes at other spots. Library covers with only a few videos in them do the same.
+
 ## [1.3.3] – 2026-10-23
 
 ### Changed

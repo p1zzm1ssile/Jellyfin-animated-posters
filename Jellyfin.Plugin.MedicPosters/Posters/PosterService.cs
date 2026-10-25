@@ -172,7 +172,7 @@ public class PosterService
 
         if (item is Series series)
         {
-            var clips = OneMomentEach(Episodes(series), spec);
+            var clips = FillMoments(OneMomentEach(Episodes(series), spec), spec);
             return clips.Count == 0 ? (clips, "None of its episodes is a video file on this server.") : (clips, null);
         }
 
@@ -208,7 +208,7 @@ public class PosterService
             // Enough to find a few readable files among streams and missing ones, without listing a whole TV library.
             Limit = 60
         });
-        var clips = OneMomentEach(videos, spec);
+        var clips = FillMoments(OneMomentEach(videos, spec), spec);
         return clips.Count == 0
             ? (clips, source == library ? "Nothing in it is a video file on this server." : $"Nothing in {source.Name} is a video file on this server.")
             : (clips, null);
@@ -274,6 +274,22 @@ public class PosterService
             .Take(spec.Moments)
             .Select(v => new Clip(v.Path, PosterMaker.RandomStart(Seconds(v), spec.MomentSeconds, Random.Shared), IsHdr(v), Seconds(v)))
             .ToList();
+    }
+
+    /// <summary>
+    /// With fewer readable videos than moments, such as a series with three episodes and six moments, takes the
+    /// rest from the same videos at other random spots, so there are as many moments as the settings ask for.
+    /// </summary>
+    public static List<Clip> FillMoments(List<Clip> clips, PosterSpec spec)
+    {
+        int have = clips.Count;
+        for (int i = have; have > 0 && i < spec.Moments; i++)
+        {
+            var again = clips[i % have];
+            clips.Add(again with { Start = PosterMaker.RandomStart(again.Length, spec.MomentSeconds, Random.Shared) });
+        }
+
+        return clips;
     }
 
     /// <summary>

@@ -141,7 +141,7 @@ An animated poster for every film and series, and an animated cover for every li
 > this one** on your slowest device before making them all. The plugin's page shows this warning too.
 
 - **Made from the video itself.** Each poster cuts between a few moments of the film, spread from 15% to 75% of the
-  way through so it skips the opening titles and the credits (for a series, a moment from each of a few episodes),
+  way through so it skips the opening titles and the credits (for a series, a moment from each of a few episodes, or more than one from each when it has fewer episodes than moments),
   with the title in capitals and a rounded white frame. Choose from ten fonts, the text's size and position (top,
   middle or bottom), its shadow and the dark band behind it, and fades between moments or at the end. HDR films are
   converted to normal colour first. It uses Jellyfin's own FFmpeg, so there's nothing else to install.

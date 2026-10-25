@@ -39,3 +39,25 @@ public class ActionMomentsTests
         Assert.Equal("-", args[^1]);
     }
 }
+
+/// <summary>A series with fewer episodes than moments still gets every moment.</summary>
+public class FillMomentsTests
+{
+    [Fact]
+    public void Three_episodes_give_six_moments()
+    {
+        var spec = PosterSpec.From(new Jellyfin.Plugin.MedicPosters.Configuration.PluginConfiguration { Moments = 6 });
+        var episodes = new List<Clip> { new("/tv/e1.mkv", 100, false, 1500), new("/tv/e2.mkv", 200, false, 1500), new("/tv/e3.mkv", 300, false, 1500) };
+        var clips = PosterService.FillMoments(episodes, spec);
+        Assert.Equal(6, clips.Count);
+        Assert.Equal(new[] { "/tv/e1.mkv", "/tv/e2.mkv", "/tv/e3.mkv", "/tv/e1.mkv", "/tv/e2.mkv", "/tv/e3.mkv" }, clips.Select(c => c.Path));
+        Assert.All(clips.Skip(3), c => Assert.InRange(c.Start, 0, 1500));
+    }
+
+    [Fact]
+    public void No_episodes_stay_none()
+    {
+        var spec = PosterSpec.From(new Jellyfin.Plugin.MedicPosters.Configuration.PluginConfiguration { Moments = 6 });
+        Assert.Empty(PosterService.FillMoments(new List<Clip>(), spec));
+    }
+}
