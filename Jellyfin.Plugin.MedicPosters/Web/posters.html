@@ -54,8 +54,7 @@
                     <div id="po-preview-frame" class="po-preview-frame"><img id="po-preview-img" alt="" hidden><span id="po-preview-empty" class="po-muted po-small">No preview yet</span></div>
                     <div class="po-preview-controls">
                         <label class="po-field"><span>Film or series</span>
-                            <input id="po-title-search" class="po-input" type="search" list="po-title-list" placeholder="Any, or type a name" autocomplete="off">
-                            <datalist id="po-title-list"></datalist>
+                            <input id="po-title-search" class="po-input" type="search" placeholder="Any, or type a name" autocomplete="off">
                         </label>
                         <div class="po-row po-row-tight">
                             <button type="button" id="po-preview" class="po-btn po-btn-accent">Preview a poster</button>
@@ -215,8 +214,7 @@
                         <select id="po-custom-library" class="po-input"><option value="">Choose a library</option></select>
                     </label>
                     <label class="po-field"><span>Or a poster</span>
-                        <input id="po-custom-search" class="po-input" type="search" list="po-custom-search-list" placeholder="Type a film or series" autocomplete="off">
-                        <datalist id="po-custom-search-list"></datalist>
+                        <input id="po-custom-search" class="po-input" type="search" placeholder="Type a film or series" autocomplete="off">
                     </label>
                     <div id="po-custom-editor" class="po-custom" hidden>
                         <h4 id="po-custom-heading" class="po-h4"></h4>
@@ -230,8 +228,7 @@
                         <ul id="po-custom-moments" class="po-moments"></ul>
                         <p id="po-custom-moments-empty" class="po-muted po-small"></p>
                         <div class="po-row" id="po-custom-add-film-row">
-                            <input id="po-custom-add" class="po-input" type="search" list="po-custom-add-list" placeholder="Add a film or series" autocomplete="off" aria-label="Add a film or series to the cover">
-                            <datalist id="po-custom-add-list"></datalist>
+                            <input id="po-custom-add" class="po-input" type="search" placeholder="Add a film or series" autocomplete="off" aria-label="Add a film or series to the cover">
                             <button type="button" id="po-custom-add-btn" class="po-btn po-btn-plain">Add</button>
                         </div>
                         <div class="po-row" id="po-custom-add-moment-row">
@@ -331,6 +328,8 @@
         #MedicPostersPage .po-moment-controls { flex: 1; min-width: 220px; display: grid; gap: 6px; }
         #MedicPostersPage .po-moment-controls input[type=range] { width: 100%; accent-color: #00a4dc; }
         #MedicPostersPage .po-time { font-variant-numeric: tabular-nums; }
+        #MedicPostersPage .po-at { width: 7em; font-variant-numeric: tabular-nums; }
+        #MedicPostersPage .po-pick { display: block; width: 100%; max-width: 32em; margin-top: 6px; }
     </style>
 
     <script>
@@ -747,6 +746,13 @@
 
                 function remember(found) { found.forEach(function (t) { known[t.id] = t; }); }
 
+                // "1:23:45", "23:45" or "85" (seconds) as seconds; null if it isn't a time.
+                function seconds(text) {
+                    const parts = text.trim().split(':');
+                    if (parts.length > 3 || parts.some(function (p) { return !/^\d+$/.test(p); })) return null;
+                    return parts.reduce(function (t, p) { return t * 60 + parseInt(p, 10); }, 0);
+                }
+
                 function loadCustomNames() {
                     const ids = [];
                     custom.forEach(function (c) {
@@ -886,6 +892,11 @@
                         range.step = '1';
                         range.value = String(m.start < 0 ? Math.floor(length * 0.4) : Math.min(m.start, length || m.start));
                         range.setAttribute('aria-label', 'Where the moment from ' + info.name + ' starts');
+                        const at = el('input', 'po-input po-at');
+                        at.type = 'text';
+                        at.inputMode = 'numeric';
+                        at.placeholder = 'h:mm:ss';
+                        at.setAttribute('aria-label', 'Where the moment from ' + info.name + ' starts, as h:mm:ss');
                         const time = el('span', 'po-time po-small');
                         const random = el('label', 'po-check po-small');
                         const box = el('input');
@@ -895,12 +906,25 @@
                         random.appendChild(document.createTextNode(' Random'));
                         function showTime() {
                             range.disabled = box.checked;
-                            time.textContent = box.checked ? 'Random' : clock(m.start) + (length ? ' of ' + clock(length) : '');
+                            at.value = box.checked ? '' : clock(m.start);
+                            time.textContent = box.checked ? 'Random' : length ? 'of ' + clock(length) : '';
                         }
                         range.addEventListener('input', function () { m.start = parseInt(range.value, 10); showTime(); showFrame(); changed(); });
+                        // A time typed in the box moves the slider there; one past the end stops at the last second.
+                        at.addEventListener('change', function () {
+                            const s = seconds(at.value);
+                            if (s === null) { showTime(); return; }
+                            m.start = length ? Math.min(s, Math.max(0, Math.floor(length) - 1)) : s;
+                            box.checked = false;
+                            range.value = String(m.start);
+                            showTime();
+                            showFrame();
+                            changed();
+                        });
                         box.addEventListener('change', function () { m.start = box.checked ? -1 : parseInt(range.value, 10); showTime(); showFrame(); changed(); });
                         showTime();
                         controls.appendChild(range);
+                        row.appendChild(at);
                         row.appendChild(time);
                         row.appendChild(random);
                         controls.appendChild(row);
@@ -915,32 +939,93 @@
                     return li;
                 }
 
-                function searchInto(input, list, everywhere, store) {
-                    let t = null;
-                    input.addEventListener('input', function () {
-                        clearTimeout(t);
-                        const q = input.value.trim();
-                        t = setTimeout(function () {
-                            if (!q) { store.length = 0; list.textContent = ''; return; }
-                            getJson('Titles?q=' + encodeURIComponent(q) + (everywhere ? '&everywhere=true' : '')).then(function (found) {
-                                remember(found);
-                                store.length = 0;
-                                Array.prototype.push.apply(store, found);
-                                list.textContent = '';
-                                found.forEach(function (f) { list.appendChild(el('option')).value = label(f); });
-                            }).catch(function () { });
-                        }, 250);
-                    });
-                }
-
                 function typed(input, store) {
                     const v = input.value.trim().toLowerCase();
                     return v && store.filter(function (t) { return label(t).toLowerCase() === v || t.name.toLowerCase() === v; })[0];
                 }
 
                 const posterMatches = [], addMatches = [];
-                searchInto($('po-custom-search'), $('po-custom-search-list'), false, posterMatches);
-                searchInto($('po-custom-add'), $('po-custom-add-list'), true, addMatches);
+
+                // Typing in a box shows the films and series that match under it, and Show list shows them all. Each kind of
+                // list is fetched from the server once, then searched here, so it answers as you type. A title matches when
+                // every word typed is somewhere in its name or year, in any order, ignoring case, accents and punctuation.
+                const allTitles = {};
+                function words(text) {
+                    return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+                }
+                function pickFromList(input, everywhere, onPick, setMatches) {
+                    const key = everywhere ? 'everywhere' : 'chosen';
+                    const button = el('button', 'po-btn po-btn-plain po-btn-small', 'Show list');
+                    button.type = 'button';
+                    button.setAttribute('aria-expanded', 'false');
+                    const pick = el('select', 'po-input po-pick');
+                    pick.size = 10;
+                    pick.hidden = true;
+                    pick.setAttribute('aria-label', 'Films and series');
+                    input.insertAdjacentElement('afterend', button);
+                    (input.closest('label') || input.parentNode).insertAdjacentElement('afterend', pick);
+
+                    function fill() {
+                        const wanted = words(input.value).split(' ').filter(Boolean);
+                        const shown = (allTitles[key] || []).filter(function (t) {
+                            const name = t.searchText || (t.searchText = ' ' + words(label(t)) + ' ');
+                            return wanted.every(function (w) { return name.indexOf(w) >= 0; });
+                        });
+                        setMatches(shown);
+                        pick.textContent = '';
+                        shown.slice(0, 500).forEach(function (t) { const o = el('option', null, label(t)); o.value = t.id; pick.appendChild(o); });
+                        if (!shown.length) { const o = el('option', null, wanted.length ? 'Nothing matches what you typed' : 'No films or series'); o.disabled = true; pick.appendChild(o); }
+                    }
+                    function show(open) {
+                        pick.hidden = !open;
+                        button.textContent = open ? 'Hide list' : 'Show list';
+                        button.setAttribute('aria-expanded', String(open));
+                    }
+                    let loading = null;
+                    function load() {
+                        if (allTitles[key]) return Promise.resolve();
+                        if (!loading) {
+                            button.disabled = true;
+                            loading = getJson('Titles?list=true' + (everywhere ? '&everywhere=true' : '')).then(function (found) {
+                                remember(found);
+                                allTitles[key] = found;
+                            }).catch(function (e) { button.textContent = 'List didn’t load, try again'; throw e; })
+                                .finally(function () { loading = null; button.disabled = false; });
+                        }
+                        return loading;
+                    }
+                    function choose() {
+                        const t = (allTitles[key] || []).filter(function (x) { return x.id === pick.value; })[0];
+                        if (!t) return;
+                        input.value = label(t);
+                        setMatches([t]);
+                        show(false);
+                        onPick(t);
+                    }
+
+                    button.addEventListener('click', function () {
+                        if (!pick.hidden) { show(false); return; }
+                        load().then(function () { fill(); show(true); }).catch(function () { });
+                    });
+                    input.addEventListener('input', function () {
+                        if (!input.value.trim()) { setMatches([]); show(false); return; }
+                        load().then(function () { fill(); show(true); }).catch(function () { });
+                    });
+                    input.addEventListener('keydown', function (e) {
+                        if (e.key === 'ArrowDown' && !pick.hidden && pick.options.length) { e.preventDefault(); pick.focus(); pick.selectedIndex = 0; }
+                        if (e.key === 'Escape') show(false);
+                    });
+                    pick.addEventListener('click', choose);
+                    pick.addEventListener('keydown', function (e) {
+                        if (e.key === 'Enter') { e.preventDefault(); choose(); }
+                        if (e.key === 'Escape') { show(false); input.focus(); }
+                    });
+                }
+
+                function into(store) { return function (found) { store.length = 0; Array.prototype.push.apply(store, found); }; }
+                pickFromList($('po-custom-search'), false, function () { $('po-custom-search').dispatchEvent(new Event('change')); }, into(posterMatches));
+                pickFromList($('po-custom-add'), true, function () { $('po-custom-add-btn').click(); }, into(addMatches));
+                pickFromList($('po-title-search'), false, function () { }, function (found) { titleMatches = found; });
 
                 $('po-custom-library').addEventListener('change', function () {
                     const id = this.value;
@@ -987,21 +1072,6 @@
                 });
 
                 function label(t) { return t.year ? t.name + ' (' + t.year + ')' : t.name; }
-
-                let searchTimer = null;
-                $('po-title-search').addEventListener('input', function () {
-                    clearTimeout(searchTimer);
-                    const q = this.value.trim();
-                    searchTimer = setTimeout(function () {
-                        if (!q) { titleMatches = []; $('po-title-list').textContent = ''; return; }
-                        getJson('Titles?q=' + encodeURIComponent(q)).then(function (found) {
-                            titleMatches = found;
-                            const list = $('po-title-list');
-                            list.textContent = '';
-                            found.forEach(function (t) { list.appendChild(el('option')).value = label(t); });
-                        }).catch(function () { });
-                    }, 250);
-                });
 
                 $('po-preview-use').addEventListener('click', function () {
                     const use = $('po-preview-use');

@@ -457,14 +457,42 @@ public class PosterService
         return (item, null);
     }
 
-    /// <summary>Titles in the chosen libraries whose name contains the text, for picking one to preview or make.</summary>
+    /// <summary>
+    /// Titles in the chosen libraries with every word of the text somewhere in their name or year, in any order, for
+    /// picking one to preview or make. Empty text matches them all.
+    /// </summary>
     /// <param name="everywhere">Search every library with videos, not just the chosen ones: for picking a cover's films.</param>
-    public IReadOnlyList<BaseItem> FindTitles(string text, int limit, bool everywhere = false) =>
-        (everywhere ? TitlesIn(Libraries().Select(l => _libraryManager.GetItemById(l.Id)).OfType<CollectionFolder>()) : Titles())
-            .Where(t => !t.IsShortcut && t.Name.Contains(text, StringComparison.OrdinalIgnoreCase))
+    public IReadOnlyList<BaseItem> FindTitles(string text, int limit, bool everywhere = false)
+    {
+        var wanted = SearchWords(text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return (everywhere ? TitlesIn(Libraries().Select(l => _libraryManager.GetItemById(l.Id)).OfType<CollectionFolder>()) : Titles())
+            .Where(t => !t.IsShortcut)
+            .Where(t =>
+            {
+                var name = SearchWords(t.Name + " " + t.ProductionYear);
+                return wanted.All(w => name.Contains(w, StringComparison.Ordinal));
+            })
             .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
             .Take(limit)
             .ToList();
+    }
+
+    /// <summary>Text as lower-case words without accents or punctuation, so "Amélie" matches "amelie" and "Spider-Man" "spider man".</summary>
+    public static string SearchWords(string? text)
+    {
+        var plain = new System.Text.StringBuilder();
+        foreach (var c in (text ?? string.Empty).Normalize(System.Text.NormalizationForm.FormD))
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            plain.Append(char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : ' ');
+        }
+
+        return string.Join(' ', plain.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
 
     /// <summary>The films, series and videos with these ids, for showing the moments picked for a poster or cover.</summary>
     public IReadOnlyList<BaseItem> FindItems(IEnumerable<Guid> ids) =>

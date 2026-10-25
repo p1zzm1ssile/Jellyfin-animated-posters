@@ -276,14 +276,17 @@ public class PostersController : ControllerBase
 
     /// <summary>
     /// Films and series in the chosen libraries whose name contains the text, for choosing one; with everywhere,
-    /// in every library with videos. With ids, those titles, for showing the moments picked for a poster or cover.
+    /// in every library with videos. With list and no text, all of them (up to 5000), for the page's list to pick from.
+    /// With ids, those titles, for showing the moments picked for a poster or cover.
     /// </summary>
     [HttpGet("Titles")]
-    public ActionResult FindTitles([FromQuery] string? q, [FromQuery] bool everywhere = false, [FromQuery] string? ids = null)
+    public ActionResult FindTitles([FromQuery] string? q, [FromQuery] bool everywhere = false, [FromQuery] string? ids = null, [FromQuery] bool list = false)
     {
         var found = !string.IsNullOrWhiteSpace(ids)
             ? _service.FindItems(ids.Split(',').Select(id => Guid.TryParse(id, out var g) ? g : Guid.Empty).Where(g => g != Guid.Empty).Take(100))
-            : string.IsNullOrWhiteSpace(q) ? Array.Empty<MediaBrowser.Controller.Entities.BaseItem>() : _service.FindTitles(q.Trim(), 20, everywhere);
+            : !string.IsNullOrWhiteSpace(q) ? _service.FindTitles(q.Trim(), 20, everywhere)
+            : list ? _service.FindTitles(string.Empty, 5000, everywhere)
+            : Array.Empty<MediaBrowser.Controller.Entities.BaseItem>();
         return Json(found.Select(t => new
         {
             id = t.Id.ToString("N"),
