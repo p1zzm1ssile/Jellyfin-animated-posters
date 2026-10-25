@@ -141,7 +141,7 @@ An animated poster for every film and series, and an animated cover for every li
 > this one** on your slowest device before making them all. The plugin's page shows this warning too.
 
 - **Made from the video itself.** Each poster cuts between a few moments of the film, spread from 15% to 75% of the
-  way through so it skips the opening titles and the credits (for a series, a moment from each of a few episodes),
+  way through so it skips the opening titles and the credits (for a series, a moment from each of a few episodes, or more than one from each when it has fewer episodes than moments),
   with the title in capitals and a rounded white frame. Choose from ten fonts, the text's size and position (top,
   middle or bottom), its shadow and the dark band behind it, and fades between moments or at the end. HDR films are
   converted to normal colour first. It uses Jellyfin's own FFmpeg, so there's nothing else to install.
@@ -164,10 +164,15 @@ An animated poster for every film and series, and an animated cover for every li
 - **Posters and covers separately.** **Make posters now** and **Make library covers now** each make only their own
   kind, and each says how many there are to make and roughly how much space they'll take, worked out from the
   settings on screen and the ones made so far.
+- **Action and fight scenes.** Tick **Prefer action and fight scenes** (posters and covers each have their own box)
+  and, instead of evenly spaced moments, it tries several spots in each video and keeps the ones where the picture
+  moves most. Fast movement and quick cuts are mostly action and fights. Each poster takes a little longer to make.
+  Moments you picked yourself are kept as they are.
 - **Leave libraries out**, such as IPTV ones, by unticking them. Libraries you add later are included.
 - **Your own text and moments.** Give any library's cover or title's poster its own text, and pick the films and the
-  exact moments it's cut from, with a still of each frame. A library of streams, such as IPTV, can take its cover
-  from another library's films and keep its own name.
+  exact moments it's cut from, with a still of each frame. Pick a title from **Show list** or by typing any words of
+  its name, and set each moment with the slider or by typing its time, such as `1:23:45`. A library of streams, such
+  as IPTV, can take its cover from another library's films and keep its own name.
 
 Animated Film Posters works on Jellyfin 12.0 and later. What's new in each version is in
 [its changelog](Jellyfin.Plugin.MedicPosters/CHANGELOG.md).
@@ -208,9 +213,9 @@ built for Jellyfin 12, so a 10.11 server needs one built by hand:
 dotnet publish Jellyfin.Plugin.MedicPosters/Jellyfin.Plugin.MedicPosters.csproj -c Release -o publish/MedicPosters-10.11 -p:JellyfinTarget=10.11
 ```
 
-To release a version, for example 1.3.3: raise `<Version>` in the project file to `1.3.3.0`, give
-[its changelog](Jellyfin.Plugin.MedicPosters/CHANGELOG.md) a `## [1.3.3]` section, merge, then tag the merged commit
-`posters-v1.3.3` (or make the release with that tag on GitHub's Releases page). The **Release Animated Film Posters**
+To release a version, for example 1.4.0: raise `<Version>` in the project file to `1.4.0.0`, give
+[its changelog](Jellyfin.Plugin.MedicPosters/CHANGELOG.md) a `## [1.4.0]` section, merge, then tag the merged commit
+`posters-v1.4.0` (or make the release with that tag on GitHub's Releases page). The **Release Animated Film Posters**
 workflow runs the tests, builds the zip, fills in the release and adds the version to `manifest.json`.
 
 ## If you ran the container

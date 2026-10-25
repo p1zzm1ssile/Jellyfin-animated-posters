@@ -172,7 +172,7 @@ public class PosterService
 
         if (item is Series series)
         {
-            var clips = OneMomentEach(Episodes(series), spec);
+            var clips = FillMoments(OneMomentEach(Episodes(series), spec), spec);
             return clips.Count == 0 ? (clips, "None of its episodes is a video file on this server.") : (clips, null);
         }
 
@@ -182,7 +182,7 @@ public class PosterService
         }
 
         var starts = PosterMaker.MomentStarts(Seconds(item), spec.Moments, spec.MomentSeconds);
-        return (starts.Select(s => new Clip(item.Path, s, IsHdr(item))).ToList(), null);
+        return (starts.Select(s => new Clip(item.Path, s, IsHdr(item), Seconds(item))).ToList(), null);
     }
 
     /// <summary>The moments for a library's cover: one from each of a few random videos in it.</summary>
@@ -208,7 +208,7 @@ public class PosterService
             // Enough to find a few readable files among streams and missing ones, without listing a whole TV library.
             Limit = 60
         });
-        var clips = OneMomentEach(videos, spec);
+        var clips = FillMoments(OneMomentEach(videos, spec), spec);
         return clips.Count == 0
             ? (clips, source == library ? "Nothing in it is a video file on this server." : $"Nothing in {source.Name} is a video file on this server.")
             : (clips, null);
@@ -272,8 +272,24 @@ public class PosterService
             .Where(v => CantMake(v) is null && v.ExtraType is null)
             .OrderBy(_ => Random.Shared.Next())
             .Take(spec.Moments)
-            .Select(v => new Clip(v.Path, PosterMaker.RandomStart(Seconds(v), spec.MomentSeconds, Random.Shared), IsHdr(v)))
+            .Select(v => new Clip(v.Path, PosterMaker.RandomStart(Seconds(v), spec.MomentSeconds, Random.Shared), IsHdr(v), Seconds(v)))
             .ToList();
+    }
+
+    /// <summary>
+    /// With fewer readable videos than moments, such as a series with three episodes and six moments, takes the
+    /// rest from the same videos at other random spots, so there are as many moments as the settings ask for.
+    /// </summary>
+    public static List<Clip> FillMoments(List<Clip> clips, PosterSpec spec)
+    {
+        int have = clips.Count;
+        for (int i = have; have > 0 && i < spec.Moments; i++)
+        {
+            var again = clips[i % have];
+            clips.Add(again with { Start = PosterMaker.RandomStart(again.Length, spec.MomentSeconds, Random.Shared) });
+        }
+
+        return clips;
     }
 
     /// <summary>
@@ -457,14 +473,42 @@ public class PosterService
         return (item, null);
     }
 
-    /// <summary>Titles in the chosen libraries whose name contains the text, for picking one to preview or make.</summary>
+    /// <summary>
+    /// Titles in the chosen libraries with every word of the text somewhere in their name or year, in any order, for
+    /// picking one to preview or make. Empty text matches them all.
+    /// </summary>
     /// <param name="everywhere">Search every library with videos, not just the chosen ones: for picking a cover's films.</param>
-    public IReadOnlyList<BaseItem> FindTitles(string text, int limit, bool everywhere = false) =>
-        (everywhere ? TitlesIn(Libraries().Select(l => _libraryManager.GetItemById(l.Id)).OfType<CollectionFolder>()) : Titles())
-            .Where(t => !t.IsShortcut && t.Name.Contains(text, StringComparison.OrdinalIgnoreCase))
+    public IReadOnlyList<BaseItem> FindTitles(string text, int limit, bool everywhere = false)
+    {
+        var wanted = SearchWords(text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return (everywhere ? TitlesIn(Libraries().Select(l => _libraryManager.GetItemById(l.Id)).OfType<CollectionFolder>()) : Titles())
+            .Where(t => !t.IsShortcut)
+            .Where(t =>
+            {
+                var name = SearchWords(t.Name + " " + t.ProductionYear);
+                return wanted.All(w => name.Contains(w, StringComparison.Ordinal));
+            })
             .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
             .Take(limit)
             .ToList();
+    }
+
+    /// <summary>Text as lower-case words without accents or punctuation, so "Amélie" matches "amelie" and "Spider-Man" "spider man".</summary>
+    public static string SearchWords(string? text)
+    {
+        var plain = new System.Text.StringBuilder();
+        foreach (var c in (text ?? string.Empty).Normalize(System.Text.NormalizationForm.FormD))
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.NonSpacingMark)
+            {
+                continue;
+            }
+
+            plain.Append(char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : ' ');
+        }
+
+        return string.Join(' ', plain.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
 
     /// <summary>The films, series and videos with these ids, for showing the moments picked for a poster or cover.</summary>
     public IReadOnlyList<BaseItem> FindItems(IEnumerable<Guid> ids) =>

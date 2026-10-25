@@ -3,6 +3,19 @@
 All notable changes to Animated Film Posters (called Medic Posters until 1.3.2) are recorded here. The newest version is at the top.
 Jellyfin Animated Posters, the library covers plugin in this repository, has its own changelog.
 
+## [1.4.0] – 2026-10-25
+
+### Added
+- **A list of titles to pick from.** Next to each box for choosing a film or series there's **Show list**, which lists them all, and typing in the box narrows the list as you type.
+- **Type the time of a moment.** Each picked moment has a box for its start time, such as `1:23:45` or `42:10`, as well as the slider. A time past the end of the film stops at its last second.
+- **Prefer action and fight scenes.** A new setting, for posters and covers separately, that tries three spots for each moment in a video and keeps the ones where the picture moves most, which are mostly action and fights. It makes each poster a little slower. Moments you picked yourself are kept.
+
+### Changed
+- **Finding a title is quicker and finds more.** The titles are fetched once and searched on the page, so the list answers as you type. A title is found when every word you type is anywhere in its name or year, in any order, ignoring capitals, accents and punctuation, so `knight dark` finds The Dark Knight and `amelie` finds Amélie.
+
+### Fixed
+- **A series poster gets all its moments.** A series with fewer episodes than moments, such as three episodes and six moments, used to get one moment per episode and so fewer than asked for. It now takes the rest from the same episodes at other spots. Library covers with only a few videos in them do the same.
+
 ## [1.3.3] – 2026-10-23
 
 ### Changed

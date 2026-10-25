@@ -82,6 +82,7 @@ public class PostersController : ControllerBase
                 fadeBetween = config.FadeBetween,
                 fadeEnd = config.FadeEnd,
                 fadeTenths = config.FadeTenths,
+                actionMoments = config.ActionMoments,
                 coverFont = PosterFonts.Find(config.CoverFont).Key,
                 coverTextSize = config.CoverTextSize,
                 coverTextPosition = config.CoverTextPosition,
@@ -90,6 +91,7 @@ public class PostersController : ControllerBase
                 coverFadeBetween = config.CoverFadeBetween,
                 coverFadeEnd = config.CoverFadeEnd,
                 coverFadeTenths = config.CoverFadeTenths,
+                coverActionMoments = config.CoverActionMoments,
                 custom = config.Custom
             },
             fonts = PosterFonts.All.Select(f => new { key = f.Key, label = f.Label }),
@@ -187,6 +189,7 @@ public class PostersController : ControllerBase
         c.FadeBetween = request.FadeBetween ?? c.FadeBetween;
         c.FadeEnd = request.FadeEnd ?? c.FadeEnd;
         c.FadeTenths = Math.Clamp(request.FadeTenths ?? c.FadeTenths, 1, 10);
+        c.ActionMoments = request.ActionMoments ?? c.ActionMoments;
         c.CoverFont = PosterFonts.Known(request.CoverFont) ? PosterFonts.Find(request.CoverFont).Key : c.CoverFont;
         c.CoverTextSize = Math.Clamp(request.CoverTextSize ?? c.CoverTextSize, 50, 200);
         c.CoverTextPosition = Position(request.CoverTextPosition) ?? c.CoverTextPosition;
@@ -195,6 +198,7 @@ public class PostersController : ControllerBase
         c.CoverFadeBetween = request.CoverFadeBetween ?? c.CoverFadeBetween;
         c.CoverFadeEnd = request.CoverFadeEnd ?? c.CoverFadeEnd;
         c.CoverFadeTenths = Math.Clamp(request.CoverFadeTenths ?? c.CoverFadeTenths, 1, 10);
+        c.CoverActionMoments = request.CoverActionMoments ?? c.CoverActionMoments;
         if (request.Custom is not null)
         {
             c.Custom = Custom(request.Custom, known);
@@ -276,14 +280,17 @@ public class PostersController : ControllerBase
 
     /// <summary>
     /// Films and series in the chosen libraries whose name contains the text, for choosing one; with everywhere,
-    /// in every library with videos. With ids, those titles, for showing the moments picked for a poster or cover.
+    /// in every library with videos. With list and no text, all of them (up to 5000), for the page's list to pick from.
+    /// With ids, those titles, for showing the moments picked for a poster or cover.
     /// </summary>
     [HttpGet("Titles")]
-    public ActionResult FindTitles([FromQuery] string? q, [FromQuery] bool everywhere = false, [FromQuery] string? ids = null)
+    public ActionResult FindTitles([FromQuery] string? q, [FromQuery] bool everywhere = false, [FromQuery] string? ids = null, [FromQuery] bool list = false)
     {
         var found = !string.IsNullOrWhiteSpace(ids)
             ? _service.FindItems(ids.Split(',').Select(id => Guid.TryParse(id, out var g) ? g : Guid.Empty).Where(g => g != Guid.Empty).Take(100))
-            : string.IsNullOrWhiteSpace(q) ? Array.Empty<MediaBrowser.Controller.Entities.BaseItem>() : _service.FindTitles(q.Trim(), 20, everywhere);
+            : !string.IsNullOrWhiteSpace(q) ? _service.FindTitles(q.Trim(), 20, everywhere)
+            : list ? _service.FindTitles(string.Empty, 5000, everywhere)
+            : Array.Empty<MediaBrowser.Controller.Entities.BaseItem>();
         return Json(found.Select(t => new
         {
             id = t.Id.ToString("N"),
@@ -409,6 +416,8 @@ public class PosterSettingsRequest
 
     public int? FadeTenths { get; set; }
 
+    public bool? ActionMoments { get; set; }
+
     public string? CoverFont { get; set; }
 
     public int? CoverTextSize { get; set; }
@@ -424,6 +433,8 @@ public class PosterSettingsRequest
     public bool? CoverFadeEnd { get; set; }
 
     public int? CoverFadeTenths { get; set; }
+
+    public bool? CoverActionMoments { get; set; }
 
     /// <summary>Every library's and title's own text and moments; the saved ones stay when missing.</summary>
     public PosterCustom[]? Custom { get; set; }

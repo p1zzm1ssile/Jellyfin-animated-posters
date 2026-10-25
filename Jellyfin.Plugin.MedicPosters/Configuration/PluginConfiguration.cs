@@ -57,6 +57,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>How long each fade takes, in tenths of a second.</summary>
     public int FadeTenths { get; set; } = 3;
 
+    /// <summary>Try several spots in each film and keep the ones with the most movement, which are mostly action and fights.</summary>
+    public bool ActionMoments { get; set; }
+
     /// <summary>Also give each library an animated cover, made from moments of what's in it, with the library's name.</summary>
     public bool MakeLibraryCovers { get; set; } = true;
 
@@ -96,6 +99,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool CoverFadeEnd { get; set; }
 
     public int CoverFadeTenths { get; set; } = 3;
+
+    /// <summary>Like <see cref="ActionMoments"/>, for library covers.</summary>
+    public bool CoverActionMoments { get; set; }
 
     /// <summary>
     /// Library covers and posters with their own text or their own moments, such as an IPTV library's cover
