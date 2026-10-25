@@ -1126,15 +1126,16 @@ public sealed class FfmpegRunnerTests : IDisposable
     [LinuxFact]
     public async Task Run_measures_silence_from_the_last_use_of_the_processor_and_not_from_the_start()
     {
-        // It works for 2 s and then waits 2.5 s, 4.5 s in all and longer than the stall limit of 3 s, with nothing on
-        // stderr. It gets through only because the 2.5 s of waiting are counted from the last time it used the
-        // processor: counted from its start, 3 s of silence had passed before it ended.
+        // It works for 4.5 s and then waits 2 s, 6.5 s in all and longer than the stall limit of 6 s, with nothing on
+        // stderr. It gets through only because the 2 s of waiting are counted from the last time it used the
+        // processor: counted from its start, 6 s of silence had passed before it ended. It runs at idle priority, so
+        // while other tests keep the processor busy it may get none of it for a while: the limit leaves room for that.
         var runner = FakeFfmpeg(
-            "end=$(( $(date +%s%N) + 2000000000 )); while [ $(date +%s%N) -lt $end ]; do :; done; sleep 2.5");
+            "end=$(( $(date +%s%N) + 4500000000 )); while [ $(date +%s%N) -lt $end ]; do :; done; sleep 2");
 
         var (exit, _) = await runner.RunAsync(
             new[] { "-i", "/media/a.mkv" },
-            TimeSpan.FromSeconds(3),
+            TimeSpan.FromSeconds(6),
             CancellationToken.None);
 
         Assert.Equal(0, exit);

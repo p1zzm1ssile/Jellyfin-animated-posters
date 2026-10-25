@@ -39,8 +39,9 @@ public sealed class CoverImageFilterTests : IDisposable
     private static readonly Guid Film = Guid.Parse("1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d");
     private static readonly DateTime Written = new(2026, 10, 16, 12, 0, 0, DateTimeKind.Utc);
 
-    // How long the filter waits for a Primary that Jellyfin is writing; short, so that giving up is quick to test.
-    private static readonly TimeSpan BusyWait = TimeSpan.FromMilliseconds(600);
+    // How long the filter waits for a Primary that Jellyfin is writing: short, so that giving up is quick to test, but
+    // far longer than the tests' own pauses, which a busy host can stretch to several times their length.
+    private static readonly TimeSpan BusyWait = TimeSpan.FromSeconds(2);
 
     private readonly string _root = Directory.CreateTempSubdirectory("cover-filter-tests-").FullName;
     private readonly Dictionary<Guid, BaseItem> _items = new();
