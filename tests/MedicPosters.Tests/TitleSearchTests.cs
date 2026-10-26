@@ -32,3 +32,17 @@ public class StreamTests
         Assert.Equal(stream, PosterService.IsStream(new MediaBrowser.Controller.Entities.Movies.Movie { Path = path! }));
     }
 }
+
+/// <summary>How an episode is named when picking one for a moment.</summary>
+public class EpisodeNameTests
+{
+    [Theory]
+    [InlineData(1, 3, "Arise", "S1E3 Arise")]
+    [InlineData(2, 10, "", "S2E10")]
+    [InlineData(null, null, "Pilot", "Pilot")]
+    public void Episodes_are_named_by_season_and_number(int? season, int? episode, string name, string expected)
+    {
+        var e = new MediaBrowser.Controller.Entities.TV.Episode { ParentIndexNumber = season, IndexNumber = episode, Name = name };
+        Assert.Equal(expected, PosterService.EpisodeName(e));
+    }
+}
