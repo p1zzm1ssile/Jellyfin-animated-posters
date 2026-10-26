@@ -10,6 +10,14 @@
     "thumbImage": "https://raw.githubusercontent.com/p1zzm1ssile/Jellyfin-animated-posters/main/Jellyfin.Plugin.MedicPosters/thumb.png",
     "versions": [
       {
+        "version": "1.4.4.0",
+        "changelog": "1.4.3 was never released, so everything below is new in this version.\n\n### Added\n- **Pick an episode and its time.** A series picked as a moment, for a library cover or a series' own poster, now has a choice of episode: **A random episode**, or any of its episodes by season and number. With an episode chosen, set where the moment starts with the slider or by typing its time, as for a film, with a still of that frame.\n- **Series posters can have their own moments.** **Add a moment** now works for a series too, so its poster can be cut from the episodes and times you choose. With none picked, it still takes random episodes.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/p1zzm1ssile/Jellyfin-animated-posters/releases/download/posters-v1.4.4/MedicPosters-v1.4.4.zip",
+        "checksum": "8ea6d160c6887e78c765fd890b60be39",
+        "timestamp": "2026-10-26T14:57:04Z"
+      },
+      {
         "version": "1.4.2.0",
         "changelog": "### Fixed\n- **Typing a title finds it in big libraries.** The list of titles holds the first 5000 from A to Z, so on servers with more, such as ones with IPTV libraries, a title further down the alphabet like Solo Leveling showed \"Nothing matches what you typed\". What you type is now also searched for on the server, so every title can be found.\n- **No IPTV titles in the lists.** Libraries left out under Libraries, such as IPTV ones, and streams (web links and .strm files) are no longer offered when picking titles, since there's nothing to cut moments from. This also keeps the lists much shorter.",
         "targetAbi": "12.0.0.0",
