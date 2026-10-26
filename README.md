@@ -214,9 +214,10 @@ dotnet publish Jellyfin.Plugin.MedicPosters/Jellyfin.Plugin.MedicPosters.csproj 
 ```
 
 To release a version, for example 1.4.4: raise `<Version>` in the project file to `1.4.4.0`, give
-[its changelog](Jellyfin.Plugin.MedicPosters/CHANGELOG.md) a `## [1.4.4]` section, merge, then tag the merged commit
-`posters-v1.4.4` (or make the release with that tag on GitHub's Releases page). The **Release Animated Film Posters**
-workflow runs the tests, builds the zip, fills in the release and adds the version to `manifest.json`.
+[its changelog](Jellyfin.Plugin.MedicPosters/CHANGELOG.md) a `## [1.4.4]` section, and merge. No tag is needed: the
+**Release Animated Film Posters** workflow sees the new version on `main`, tags the merged commit `posters-v1.4.4`, runs
+the tests, builds the zip, makes the release and adds the version to `manifest.json`. Pushing a `posters-v1.4.4` tag
+yourself (or making the release on GitHub's Releases page) still works, and does nothing if that version is already out.
 
 ## If you ran the container
 

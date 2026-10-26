@@ -1,6 +1,7 @@
 name: Release Animated Film Posters
 
-# Push a tag like posters-v1.3.3 to check, test, build and release Animated Film Posters:
+# Merging a pull request that raises <Version> releases that version on its own: the run tags the merged commit
+# posters-vX.Y.Z and carries on as below. Pushing a tag like posters-v1.3.3 still works too:
 #   posters-v1.3.3  ->  checks the tag, runs the tests, builds Animated Film Posters 1.3.3.0, creates the GitHub
 #                       release and adds the version to manifest.json beside Jellyfin Animated Posters
 #
@@ -11,6 +12,10 @@ name: Release Animated Film Posters
 # releases are never marked "Latest", so the repository page keeps showing Jellyfin Animated Posters.
 on:
   push:
+    branches:
+      - main
+    paths:
+      - 'Jellyfin.Plugin.MedicPosters/Jellyfin.Plugin.MedicPosters.csproj'
     tags:
       - 'posters-v*'
 
@@ -48,6 +53,8 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       version4: ${{ steps.meta.outputs.version4 }}
       zip: ${{ steps.meta.outputs.zip }}
+      tag: ${{ steps.meta.outputs.tag }}
+      release: ${{ steps.meta.outputs.release }}
     steps:
       - name: Check out the tagged code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,24 +66,37 @@ jobs:
         id: meta
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#posters-v}"
+          HAVE="$(grep -oP '(?<=<Version>)[^<]+' "$PLUGIN_PROJECT" | head -1)"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            # A merge to main that touched the project file: release its version if it isn't out yet.
+            TAG="posters-v${HAVE%.0}"
+          fi
+          VERSION="${TAG#posters-v}"
+          # Already in the catalogue (a merge that changed something else in the project file, or a tag pushed
+          # after the merge already released it): nothing to do.
+          git fetch --quiet origin main
+          if git show origin/main:manifest.json | python3 -c 'import json,sys; m=json.load(sys.stdin); sys.exit(0 if any(v["version"]==sys.argv[2] for p in m if p["guid"]==sys.argv[1] for v in p["versions"]) else 1)' "$PLUGIN_GUID" "$VERSION.0"; then
+            echo "::notice::$PLUGIN_NAME $VERSION is already in manifest.json, so there is nothing to release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # Three numbers without leading zeros: the version ends up in file names, commands and the manifest.
           if ! [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "::error::Tag must look like posters-v1.2.3, with no leading zeros (got $GITHUB_REF_NAME)"
+            echo "::error::Tag must look like posters-v1.2.3, with no leading zeros (got $TAG)"
             exit 1
           fi
           # The tag must sit on the code for that version. The fourth part is always 0.
-          HAVE="$(grep -oP '(?<=<Version>)[^<]+' "$PLUGIN_PROJECT" | head -1)"
           if [ "$HAVE" != "$VERSION.0" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME needs <Version>$VERSION.0</Version> in $PLUGIN_PROJECT, but this" \
+            echo "::error::Tag $TAG needs <Version>$VERSION.0</Version> in $PLUGIN_PROJECT, but this" \
               "commit has $HAVE. Merge the release first, then tag the merged commit."
             exit 1
           fi
           # And it must be on main: a branch that already has the new version but isn't merged would pass the
           # check above.
-          git fetch --quiet origin main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::Tag $GITHUB_REF_NAME is on a commit that isn't on main." \
+            echo "::error::Tag $TAG is on a commit that isn't on main." \
               "Merge first, then tag the merged commit."
             exit 1
           fi
@@ -88,11 +108,14 @@ jobs:
             echo "version=$VERSION"
             echo "version4=$VERSION.0"
             echo "zip=MedicPosters-v$VERSION.zip"
+            echo "tag=$TAG"
+            echo "release=true"
           } >> "$GITHUB_OUTPUT"
 
   # Unit and end-to-end tests: nothing is released or added to the manifest unless they pass.
   tests:
     needs: check
+    if: needs.check.outputs.release == 'true'
     uses: ./.github/workflows/tests.yml
 
   release:
@@ -163,19 +186,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.check.outputs.tag }}
           RELEASE_VERSION: ${{ needs.check.outputs.version }}
           ZIP_FILE: ${{ needs.check.outputs.zip }}
           MD5: ${{ steps.package.outputs.md5 }}
         run: |
+          # On a merge to main, tag the merged commit. A tag made too early (on the commit before the merge) is
+          # moved here, since that version was never released.
+          if [ "$GITHUB_REF_TYPE" != tag ]; then
+            if gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+              gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            else
+              gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA" >/dev/null
+            fi
+          fi
           { cat CHANGES.md; echo; echo "MD5 checksum: \`$MD5\`"; } > RELEASE_NOTES.md
           # The release may already exist if it was made on GitHub's Releases page (which creates the
           # tag): then add the zip to it and fill in its title and notes instead.
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$ZIP_FILE" --clobber
-            gh release edit "$GITHUB_REF_NAME" --title "$PLUGIN_NAME $RELEASE_VERSION" \
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$ZIP_FILE" --clobber
+            gh release edit "$RELEASE_TAG" --title "$PLUGIN_NAME $RELEASE_VERSION" \
               --notes-file RELEASE_NOTES.md --latest=false
           else
-            gh release create "$GITHUB_REF_NAME" "$ZIP_FILE" --verify-tag \
+            gh release create "$RELEASE_TAG" "$ZIP_FILE" --verify-tag \
               --title "$PLUGIN_NAME $RELEASE_VERSION" --notes-file RELEASE_NOTES.md --latest=false
           fi
 
@@ -183,6 +216,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.check.outputs.tag }}
           PLUGIN_VERSION: ${{ needs.check.outputs.version4 }}
           ZIP_FILE: ${{ needs.check.outputs.zip }}
           MD5: ${{ steps.package.outputs.md5 }}
@@ -198,7 +232,7 @@ jobs:
             --name "$PLUGIN_NAME" \
             --version "$PLUGIN_VERSION" \
             --abi "$PLUGIN_TARGET_ABI" \
-            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${ZIP_FILE}" \
+            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${ZIP_FILE}" \
             --checksum "$MD5" \
             --changelog-file CHANGES.md \
             --owner "$PLUGIN_OWNER" \
