@@ -7,6 +7,7 @@ Jellyfin Animated Posters, the library covers plugin in this repository, has its
 
 ### Fixed
 - **Typing a title finds it in big libraries.** The list of titles holds the first 5000 from A to Z, so on servers with more, such as ones with IPTV libraries, a title further down the alphabet like Solo Leveling showed "Nothing matches what you typed". What you type is now also searched for on the server, so every title can be found.
+- **No IPTV titles in the lists.** Libraries left out under Libraries, such as IPTV ones, and streams (web links and .strm files) are no longer offered when picking titles, since there's nothing to cut moments from. This also keeps the lists much shorter.
 
 ## [1.4.1] – 2026-10-25
 

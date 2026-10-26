@@ -17,3 +17,18 @@ public class TitleSearchTests
         Assert.Equal(expected, PosterService.SearchWords(text));
     }
 }
+
+/// <summary>Streams, such as IPTV films, have nothing to cut moments from, so they're never offered as titles.</summary>
+public class StreamTests
+{
+    [Theory]
+    [InlineData("/media/films/Heat (1995)/Heat.mkv", false)]
+    [InlineData("/media/tv/Solo Leveling", false)]
+    [InlineData("http://iptv.example:8080/movie/user/pass/123.mkv", true)]
+    [InlineData("", true)]
+    [InlineData(null, true)]
+    public void Only_files_on_this_server_are_titles(string? path, bool stream)
+    {
+        Assert.Equal(stream, PosterService.IsStream(new MediaBrowser.Controller.Entities.Movies.Movie { Path = path! }));
+    }
+}

@@ -171,7 +171,7 @@ An animated poster for every film and series, and an animated cover for every li
 - **Leave libraries out**, such as IPTV ones, by unticking them. Libraries you add later are included.
 - **Your own text and moments.** Give any library's cover or title's poster its own text, and pick the films and the
   exact moments it's cut from, with a still of each frame. Pick a title from **Show list** or by typing any words of
-  its name (typing finds any title, however big the libraries; **Show list** shows the first 5000 from A to Z), and set each moment with the slider or by typing its time, such as `1:23:45`. A library of streams, such
+  its name (only real video files are offered, never streams or libraries left out such as IPTV ones; typing finds any title, and **Show list** shows the first 5000 from A to Z), and set each moment with the slider or by typing its time, such as `1:23:45`. A library of streams, such
   as IPTV, can take its cover from another library's films and keep its own name.
 
 Animated Film Posters works on Jellyfin 12.0 and later. What's new in each version is in

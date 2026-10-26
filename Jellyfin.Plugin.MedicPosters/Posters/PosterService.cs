@@ -474,15 +474,21 @@ public class PosterService
     }
 
     /// <summary>
-    /// Titles in the chosen libraries with every word of the text somewhere in their name or year, in any order, for
-    /// picking one to preview or make. Empty text matches them all.
+    /// Titles in the chosen libraries (with everywhere, every library not left out) with every word of the text
+    /// somewhere in their name or year, in any order, for picking one to preview or make. Empty text matches them all.
+    /// Streams are left out.
     /// </summary>
     /// <param name="everywhere">Search every library with videos, not just the chosen ones: for picking a cover's films.</param>
     public IReadOnlyList<BaseItem> FindTitles(string text, int limit, bool everywhere = false)
     {
         var wanted = SearchWords(text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return (everywhere ? TitlesIn(Libraries().Select(l => _libraryManager.GetItemById(l.Id)).OfType<CollectionFolder>()) : Titles())
-            .Where(t => !t.IsShortcut)
+        // Libraries left out, such as IPTV ones, and streams have nothing to cut moments from, so they're never offered.
+        var excluded = Ids(Plugin.Instance?.Configuration.ExcludedLibraryIds);
+        var libraries = everywhere
+            ? TitlesIn(Libraries().Where(l => !excluded.Contains(l.Id)).Select(l => _libraryManager.GetItemById(l.Id)).OfType<CollectionFolder>())
+            : Titles();
+        return libraries
+            .Where(t => !IsStream(t))
             .Where(t =>
             {
                 var name = SearchWords(t.Name + " " + t.ProductionYear);
@@ -492,6 +498,13 @@ public class PosterService
             .Take(limit)
             .ToList();
     }
+
+    /// <summary>
+    /// A stream rather than a file on this server: a .strm shortcut, a web address, or an item with no path, such as
+    /// an IPTV film. A series is a folder of episodes, so it counts only when it has no folder.
+    /// </summary>
+    public static bool IsStream(BaseItem item) =>
+        item.IsShortcut || string.IsNullOrEmpty(item.Path) || item.Path.Contains("://", StringComparison.Ordinal);
 
     /// <summary>Text as lower-case words without accents or punctuation, so "Amélie" matches "amelie" and "Spider-Man" "spider man".</summary>
     public static string SearchWords(string? text)
