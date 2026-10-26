@@ -528,6 +528,21 @@ public class PosterService
         ids.Distinct().Select(id => _libraryManager.GetItemById(id)).OfType<BaseItem>()
             .Where(i => i is Video or Series).ToList();
 
+    /// <summary>A series' episodes that are files on this server, in season and episode order, for picking one.</summary>
+    public IReadOnlyList<Episode> EpisodesOf(Guid seriesId) =>
+        _libraryManager.GetItemById(seriesId) is Series series
+            ? Episodes(series).OfType<Episode>().Where(e => !IsStream(e) && e.ExtraType is null)
+                .OrderBy(e => e.ParentIndexNumber ?? int.MaxValue).ThenBy(e => e.IndexNumber ?? int.MaxValue).ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : Array.Empty<Episode>();
+
+    /// <summary>How an episode is named when picking one: "S1E3 Name", or just its name without numbers.</summary>
+    public static string EpisodeName(Episode e)
+    {
+        string number = e.ParentIndexNumber is { } season && e.IndexNumber is { } episode ? $"S{season}E{episode}" : string.Empty;
+        return number.Length == 0 ? e.Name : string.IsNullOrWhiteSpace(e.Name) ? number : number + " " + e.Name;
+    }
+
     /// <summary>A still frame of a film, episode or video, for choosing where a moment starts. Null if it can't be read.</summary>
     public async Task<byte[]?> FrameAsync(Guid itemId, double at, CancellationToken ct)
     {

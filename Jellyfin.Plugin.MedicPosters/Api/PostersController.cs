@@ -291,15 +291,35 @@ public class PostersController : ControllerBase
             : !string.IsNullOrWhiteSpace(q) ? _service.FindTitles(q.Trim(), 100, everywhere)
             : list ? _service.FindTitles(string.Empty, 5000, everywhere)
             : Array.Empty<MediaBrowser.Controller.Entities.BaseItem>();
-        return Json(found.Select(t => new
+        return Json(found.Select(Title));
+    }
+
+    /// <summary>A series' episodes that are files on this server, for picking one as a moment.</summary>
+    [HttpGet("Episodes")]
+    public ActionResult Episodes([FromQuery] Guid seriesId) => Json(_service.EpisodesOf(seriesId).Select(Title));
+
+    // A title as the page shows it. An episode carries its series, so the page can offer the other episodes.
+    private static object Title(MediaBrowser.Controller.Entities.BaseItem t) => t is MediaBrowser.Controller.Entities.TV.Episode e
+        ? new
+        {
+            id = e.Id.ToString("N"),
+            name = (e.SeriesName is { Length: > 0 } show ? show + " – " : string.Empty) + PosterService.EpisodeName(e),
+            year = (int?)null,
+            series = false,
+            seconds = PosterService.Seconds(e),
+            seriesId = e.SeriesId == Guid.Empty ? null : e.SeriesId.ToString("N"),
+            episode = (string?)PosterService.EpisodeName(e)
+        }
+        : new
         {
             id = t.Id.ToString("N"),
             name = t.Name,
             year = t.ProductionYear,
             series = t is MediaBrowser.Controller.Entities.TV.Series,
-            seconds = PosterService.Seconds(t)
-        }));
-    }
+            seconds = PosterService.Seconds(t),
+            seriesId = (string?)null,
+            episode = (string?)null
+        };
 
     /// <summary>A still frame from a film, episode or video, for choosing where a moment starts.</summary>
     [HttpGet("Frame")]

@@ -331,6 +331,7 @@
         #MedicPostersPage .po-moment-controls input[type=range] { width: 100%; accent-color: #00a4dc; }
         #MedicPostersPage .po-time { font-variant-numeric: tabular-nums; }
         #MedicPostersPage .po-at { width: 7em; font-variant-numeric: tabular-nums; }
+        #MedicPostersPage .po-episode { display: block; max-width: 24em; margin: 4px 0; }
         #MedicPostersPage .po-pick { display: block; width: 100%; max-width: 32em; margin-top: 6px; }
     </style>
 
@@ -824,7 +825,7 @@
                     $('po-custom-source-row').hidden = !cover;
                     $('po-custom-add-film-row').hidden = !cover;
                     const series = !cover && known[itemId] && known[itemId].series;
-                    $('po-custom-add-moment-row').hidden = cover || series;
+                    $('po-custom-add-moment-row').hidden = cover;
                     $('po-custom-note').textContent = '';
                     if (cover) {
                         const source = $('po-custom-source');
@@ -846,12 +847,53 @@
                     const cover = editing.kind === 'cover';
                     const series = !cover && known[editing.itemId] && known[editing.itemId].series;
                     $('po-custom-moments-empty').textContent = moments.length ? ''
-                        : series ? 'A series poster takes its moments from random episodes. You can still give it its own text.'
+                        : series ? 'None picked, so the moments come from random episodes. Add up to 6 to choose the episodes and times.'
                         : cover ? 'None picked, so the cover takes random moments from ' + ($('po-custom-source').value ? libraryName($('po-custom-source').value) : 'this library') + '. Add up to 6 films or series to choose them.'
                         : 'None picked, so the moments are spread through the film. Add up to 6 to choose them.';
                     $('po-custom-add-btn').disabled = moments.length >= 6;
                     $('po-custom-add-moment').disabled = moments.length >= 6;
                     moments.forEach(function (m, index) { list.appendChild(momentRow(c, m, index)); });
+                }
+
+                // A series' episodes that are files on the server, fetched once per series.
+                const episodesOf = {};
+                function loadEpisodes(seriesId) {
+                    if (!episodesOf[seriesId]) {
+                        episodesOf[seriesId] = getJson('Episodes?seriesId=' + seriesId).then(function (found) { remember(found); return found; });
+                        episodesOf[seriesId].catch(function () { delete episodesOf[seriesId]; });
+                    }
+                    return episodesOf[seriesId];
+                }
+
+                // For a series, or one of its episodes: a choice of a random episode or a particular one.
+                function episodePicker(m, seriesId) {
+                    const pick = el('select', 'po-input po-episode');
+                    pick.setAttribute('aria-label', 'Which episode');
+                    const random = el('option', null, 'A random episode');
+                    random.value = seriesId;
+                    pick.appendChild(random);
+                    if (m.itemId !== seriesId) {
+                        const current = el('option', null, known[m.itemId] && known[m.itemId].episode || 'This episode');
+                        current.value = m.itemId;
+                        pick.appendChild(current);
+                    }
+                    pick.value = m.itemId;
+                    pick.disabled = true;
+                    loadEpisodes(seriesId).then(function (episodes) {
+                        const chosen = pick.value;
+                        while (pick.options.length > 1) pick.remove(1);
+                        episodes.forEach(function (e) { const o = el('option', null, e.episode || e.name); o.value = e.id; pick.appendChild(o); });
+                        pick.value = chosen;
+                        pick.disabled = false;
+                    }, function () { random.textContent = 'A random episode (the episodes didn’t load)'; });
+                    pick.addEventListener('change', function () {
+                        const e = known[pick.value];
+                        m.itemId = pick.value;
+                        m.start = pick.value === seriesId || !e || !e.seconds ? -1 : Math.floor(e.seconds * 0.4);
+                        renderMoments();
+                        changed();
+                    });
+                    return pick;
                 }
 
                 function momentRow(c, m, index) {
@@ -860,7 +902,10 @@
                     const thumb = el('div', 'po-thumb');
                     li.appendChild(thumb);
                     const controls = el('div', 'po-moment-controls');
-                    controls.appendChild(el('strong', null, (index + 1) + '. ' + label(info)));
+                    const seriesId = info.series ? m.itemId : info.seriesId;
+                    const heading = seriesId && known[seriesId] ? label(known[seriesId]) : label(info);
+                    controls.appendChild(el('strong', null, (index + 1) + '. ' + heading));
+                    if (seriesId) controls.appendChild(episodePicker(m, seriesId));
                     li.appendChild(controls);
                     const length = info.seconds || 0;
                     let frameTimer = null;
@@ -888,7 +933,7 @@
                     }
 
                     if (info.series) {
-                        controls.appendChild(el('span', 'po-muted po-small', 'A random moment from a random episode.'));
+                        controls.appendChild(el('span', 'po-muted po-small', 'A random moment from a random episode, or pick one above.'));
                     } else {
                         const row = el('div', 'po-row po-row-tight');
                         const range = el('input');
@@ -1083,6 +1128,13 @@
                 $('po-custom-add-moment').addEventListener('click', function () {
                     const info = known[editing.itemId] || {};
                     const c = entry(true);
+                    // A series' moment starts as a random episode; its row then offers each episode and a time in it.
+                    if (info.series) {
+                        c.moments.push({ itemId: editing.itemId, start: -1 });
+                        renderMoments();
+                        changed();
+                        return;
+                    }
                     // Each new moment starts a little further in than the last one, past the opening titles.
                     const length = info.seconds || 0;
                     const last = c.moments.length ? c.moments[c.moments.length - 1].start : -1;
