@@ -213,10 +213,11 @@ built for Jellyfin 12, so a 10.11 server needs one built by hand:
 dotnet publish Jellyfin.Plugin.MedicPosters/Jellyfin.Plugin.MedicPosters.csproj -c Release -o publish/MedicPosters-10.11 -p:JellyfinTarget=10.11
 ```
 
-To release a version, for example 1.4.3: raise `<Version>` in the project file to `1.4.3.0`, give
-[its changelog](Jellyfin.Plugin.MedicPosters/CHANGELOG.md) a `## [1.4.3]` section, merge, then tag the merged commit
-`posters-v1.4.3` (or make the release with that tag on GitHub's Releases page). The **Release Animated Film Posters**
-workflow runs the tests, builds the zip, fills in the release and adds the version to `manifest.json`.
+To release a version, for example 1.4.4: raise `<Version>` in the project file to `1.4.4.0`, give
+[its changelog](Jellyfin.Plugin.MedicPosters/CHANGELOG.md) a `## [1.4.4]` section, and merge. No tag is needed: the
+**Release Animated Film Posters** workflow sees the new version on `main`, tags the merged commit `posters-v1.4.4`, runs
+the tests, builds the zip, makes the release and adds the version to `manifest.json`. Pushing a `posters-v1.4.4` tag
+yourself (or making the release on GitHub's Releases page) still works, and does nothing if that version is already out.
 
 ## If you ran the container
 

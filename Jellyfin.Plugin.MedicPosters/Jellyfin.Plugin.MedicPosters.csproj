@@ -24,7 +24,7 @@
   <PropertyGroup>
     <RootNamespace>Jellyfin.Plugin.MedicPosters</RootNamespace>
     <AssemblyName>Jellyfin.Plugin.MedicPosters</AssemblyName>
-    <Version>1.4.3.0</Version>
+    <Version>1.4.4.0</Version>
     <AssemblyVersion>1.4.0.0</AssemblyVersion>
     <FileVersion>1.4.0.0</FileVersion>
     <Nullable>enable</Nullable>
