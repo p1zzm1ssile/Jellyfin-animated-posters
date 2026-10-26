@@ -955,7 +955,10 @@
                 // Typing in a box shows the films and series that match under it, and Show list shows them all. Each kind of
                 // list is fetched from the server once, then searched here, so it answers as you type. A title matches when
                 // every word typed is somewhere in its name or year, in any order, ignoring case, accents and punctuation.
-                const allTitles = {};
+                // The server sends at most listMax titles, the first in A to Z order; with more than that, such as with big
+                // IPTV libraries, what's typed is also searched for on the server, so titles past the first listMax are found.
+                const allTitles = {}, partTitles = {};
+                const listMax = 5000;
                 function words(text) {
                     return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
                 }
@@ -971,7 +974,23 @@
                     input.insertAdjacentElement('afterend', button);
                     (input.closest('label') || input.parentNode).insertAdjacentElement('afterend', pick);
 
+                    let searchTimer = null, searched = '';
+                    function searchServer(text) {
+                        clearTimeout(searchTimer);
+                        if (!partTitles[key] || !text || text === searched) return;
+                        searchTimer = setTimeout(function () {
+                            getJson('Titles?q=' + encodeURIComponent(text) + (everywhere ? '&everywhere=true' : '')).then(function (found) {
+                                searched = text;
+                                remember(found);
+                                const have = {};
+                                allTitles[key].forEach(function (t) { have[t.id] = true; });
+                                found.forEach(function (t) { if (!have[t.id]) allTitles[key].push(t); });
+                                if (input.value.trim() === text && !pick.hidden) fill();
+                            }).catch(function () { });
+                        }, 250);
+                    }
                     function fill() {
+                        searchServer(input.value.trim());
                         const wanted = words(input.value).split(' ').filter(Boolean);
                         const shown = (allTitles[key] || []).filter(function (t) {
                             const name = t.searchText || (t.searchText = ' ' + words(label(t)) + ' ');
@@ -980,7 +999,12 @@
                         setMatches(shown);
                         pick.textContent = '';
                         shown.slice(0, 500).forEach(function (t) { const o = el('option', null, label(t)); o.value = t.id; pick.appendChild(o); });
-                        if (!shown.length) { const o = el('option', null, wanted.length ? 'Nothing matches what you typed' : 'No films or series'); o.disabled = true; pick.appendChild(o); }
+                        if (!shown.length) {
+                            const searching = partTitles[key] && wanted.length && input.value.trim() !== searched;
+                            const o = el('option', null, searching ? 'Searching…' : wanted.length ? 'Nothing matches what you typed' : 'No films or series');
+                            o.disabled = true;
+                            pick.appendChild(o);
+                        }
                     }
                     function show(open) {
                         pick.hidden = !open;
@@ -995,6 +1019,7 @@
                             loading = getJson('Titles?list=true' + (everywhere ? '&everywhere=true' : '')).then(function (found) {
                                 remember(found);
                                 allTitles[key] = found;
+                                partTitles[key] = found.length >= listMax;
                             }).catch(function (e) { button.textContent = 'List didn’t load, try again'; throw e; })
                                 .finally(function () { loading = null; button.disabled = false; });
                         }

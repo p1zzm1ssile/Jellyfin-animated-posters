@@ -288,7 +288,7 @@ public class PostersController : ControllerBase
     {
         var found = !string.IsNullOrWhiteSpace(ids)
             ? _service.FindItems(ids.Split(',').Select(id => Guid.TryParse(id, out var g) ? g : Guid.Empty).Where(g => g != Guid.Empty).Take(100))
-            : !string.IsNullOrWhiteSpace(q) ? _service.FindTitles(q.Trim(), 20, everywhere)
+            : !string.IsNullOrWhiteSpace(q) ? _service.FindTitles(q.Trim(), 100, everywhere)
             : list ? _service.FindTitles(string.Empty, 5000, everywhere)
             : Array.Empty<MediaBrowser.Controller.Entities.BaseItem>();
         return Json(found.Select(t => new

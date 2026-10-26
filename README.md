@@ -171,7 +171,7 @@ An animated poster for every film and series, and an animated cover for every li
 - **Leave libraries out**, such as IPTV ones, by unticking them. Libraries you add later are included.
 - **Your own text and moments.** Give any library's cover or title's poster its own text, and pick the films and the
   exact moments it's cut from, with a still of each frame. Pick a title from **Show list** or by typing any words of
-  its name, and set each moment with the slider or by typing its time, such as `1:23:45`. A library of streams, such
+  its name (only real video files are offered, never streams or libraries left out such as IPTV ones; typing finds any title, and **Show list** shows the first 5000 from A to Z), and set each moment with the slider or by typing its time, such as `1:23:45`. A library of streams, such
   as IPTV, can take its cover from another library's films and keep its own name.
 
 Animated Film Posters works on Jellyfin 12.0 and later. What's new in each version is in
@@ -213,9 +213,9 @@ built for Jellyfin 12, so a 10.11 server needs one built by hand:
 dotnet publish Jellyfin.Plugin.MedicPosters/Jellyfin.Plugin.MedicPosters.csproj -c Release -o publish/MedicPosters-10.11 -p:JellyfinTarget=10.11
 ```
 
-To release a version, for example 1.4.1: raise `<Version>` in the project file to `1.4.1.0`, give
-[its changelog](Jellyfin.Plugin.MedicPosters/CHANGELOG.md) a `## [1.4.1]` section, merge, then tag the merged commit
-`posters-v1.4.1` (or make the release with that tag on GitHub's Releases page). The **Release Animated Film Posters**
+To release a version, for example 1.4.2: raise `<Version>` in the project file to `1.4.2.0`, give
+[its changelog](Jellyfin.Plugin.MedicPosters/CHANGELOG.md) a `## [1.4.2]` section, merge, then tag the merged commit
+`posters-v1.4.2` (or make the release with that tag on GitHub's Releases page). The **Release Animated Film Posters**
 workflow runs the tests, builds the zip, fills in the release and adds the version to `manifest.json`.
 
 ## If you ran the container
