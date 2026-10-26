@@ -10,6 +10,14 @@
     "thumbImage": "https://raw.githubusercontent.com/p1zzm1ssile/Jellyfin-animated-posters/main/Jellyfin.Plugin.MedicPosters/thumb.png",
     "versions": [
       {
+        "version": "1.4.2.0",
+        "changelog": "### Fixed\n- **Typing a title finds it in big libraries.** The list of titles holds the first 5000 from A to Z, so on servers with more, such as ones with IPTV libraries, a title further down the alphabet like Solo Leveling showed \"Nothing matches what you typed\". What you type is now also searched for on the server, so every title can be found.\n- **No IPTV titles in the lists.** Libraries left out under Libraries, such as IPTV ones, and streams (web links and .strm files) are no longer offered when picking titles, since there's nothing to cut moments from. This also keeps the lists much shorter.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/p1zzm1ssile/Jellyfin-animated-posters/releases/download/posters-v1.4.2/MedicPosters-v1.4.2.zip",
+        "checksum": "fdfef5ca59e8a5e1f19b98ea615acdba",
+        "timestamp": "2026-10-26T09:51:00Z"
+      },
+      {
         "version": "1.4.1.0",
         "changelog": "1.4.0 was never released, so everything below is new in this version.\n\n### Added\n- **A list of titles to pick from.** Next to each box for choosing a film or series there's **Show list**, which lists them all, and typing in the box narrows the list as you type.\n- **Type the time of a moment.** Each picked moment has a box for its start time, such as `1:23:45` or `42:10`, as well as the slider. A time past the end of the film stops at its last second.\n- **Prefer action and fight scenes.** A new setting, for posters and covers separately, that tries three spots for each moment in a video and keeps the ones where the picture moves most, which are mostly action and fights. It makes each poster a little slower. Moments you picked yourself are kept.\n\n### Changed\n- **Finding a title is quicker and finds more.** The titles are fetched once and searched on the page, so the list answers as you type. A title is found when every word you type is anywhere in its name or year, in any order, ignoring capitals, accents and punctuation, so `knight dark` finds The Dark Knight and `amelie` finds Amélie.\n\n### Fixed\n- **A series poster gets all its moments.** A series with fewer episodes than moments, such as three episodes and six moments, used to get one moment per episode and so fewer than asked for. It now takes the rest from the same episodes at other spots. Library covers with only a few videos in them do the same.",
         "targetAbi": "12.0.0.0",
