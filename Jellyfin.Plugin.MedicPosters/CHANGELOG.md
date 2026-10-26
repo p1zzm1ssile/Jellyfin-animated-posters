@@ -3,7 +3,9 @@
 All notable changes to Animated Film Posters (called Medic Posters until 1.3.2) are recorded here. The newest version is at the top.
 Jellyfin Animated Posters, the library covers plugin in this repository, has its own changelog.
 
-## [1.4.3] – 2026-10-26
+## [1.4.4] – 2026-10-26
+
+1.4.3 was never released, so everything below is new in this version.
 
 ### Added
 - **Pick an episode and its time.** A series picked as a moment, for a library cover or a series' own poster, now has a choice of episode: **A random episode**, or any of its episodes by season and number. With an episode chosen, set where the moment starts with the slider or by typing its time, as for a film, with a still of that frame.
