@@ -3,6 +3,15 @@
 All notable changes to Animated Film Posters (called Medic Posters until 1.3.2) are recorded here. The newest version is at the top.
 Jellyfin Animated Posters, the library covers plugin in this repository, has its own changelog.
 
+## [1.4.5] – 2026-11-10
+
+### Added
+- **New films and series get a poster within minutes.** Once nothing new has been added for 10 minutes, each new film, series or video gets its poster, and so does a series whose first episodes have just arrived, instead of waiting for the nightly run. More than 25 at once, such as a new library's first scan, are left to the nightly run. It's on by default; untick **New films and series** under Posters to turn it off.
+
+### Fixed
+- **No more fighting over library covers with Jellyfin Animated Posters.** With both plugins installed, each replaced the other's library covers, and Jellyfin Animated Posters pinned the library whenever its cover was changed from outside. Animated Film Posters now leaves library covers to Jellyfin Animated Posters while it's installed and enabled: the cover buttons are off and the page says why. Posters are made as usual.
+- **The catalogue address in the README** had a typo (`Jellfin`). It worked through a redirect, but the right address is now shown.
+
 ## [1.4.4] – 2026-10-26
 
 1.4.3 was never released, so everything below is new in this version.
