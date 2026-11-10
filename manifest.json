@@ -10,6 +10,14 @@
     "thumbImage": "https://raw.githubusercontent.com/p1zzm1ssile/Jellyfin-animated-posters/main/Jellyfin.Plugin.MedicPosters/thumb.png",
     "versions": [
       {
+        "version": "1.4.5.0",
+        "changelog": "### Added\n- **New films and series get a poster within minutes.** Once nothing new has been added for 10 minutes, each new film, series or video gets its poster, and so does a series whose first episodes have just arrived, instead of waiting for the nightly run. More than 25 at once, such as a new library's first scan, are left to the nightly run. It's on by default; untick **New films and series** under Posters to turn it off.\n\n### Fixed\n- **No more fighting over library covers with Jellyfin Animated Posters.** With both plugins installed, each replaced the other's library covers, and Jellyfin Animated Posters pinned the library whenever its cover was changed from outside. Animated Film Posters now leaves library covers to Jellyfin Animated Posters while it's installed and enabled: the cover buttons are off and the page says why. Posters are made as usual.\n- **The catalogue address in the README** had a typo (`Jellfin`). It worked through a redirect, but the right address is now shown.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/p1zzm1ssile/Jellyfin-animated-posters/releases/download/posters-v1.4.5/MedicPosters-v1.4.5.zip",
+        "checksum": "f35cde78069bd4bbf454073b7a61e44d",
+        "timestamp": "2026-11-10T21:07:33Z"
+      },
+      {
         "version": "1.4.4.0",
         "changelog": "1.4.3 was never released, so everything below is new in this version.\n\n### Added\n- **Pick an episode and its time.** A series picked as a moment, for a library cover or a series' own poster, now has a choice of episode: **A random episode**, or any of its episodes by season and number. With an episode chosen, set where the moment starts with the slider or by typing its time, as for a film, with a still of that frame.\n- **Series posters can have their own moments.** **Add a moment** now works for a series too, so its poster can be cut from the episodes and times you choose. With none picked, it still takes random episodes.",
         "targetAbi": "12.0.0.0",
