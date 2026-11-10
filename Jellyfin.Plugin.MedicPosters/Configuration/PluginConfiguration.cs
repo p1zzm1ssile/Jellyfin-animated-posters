@@ -63,6 +63,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Also give each library an animated cover, made from moments of what's in it, with the library's name.</summary>
     public bool MakeLibraryCovers { get; set; } = true;
 
+    /// <summary>Make a poster for a new film or series a few minutes after it's added, instead of waiting for the nightly run.</summary>
+    public bool MakeNewTitlesSoon { get; set; } = true;
+
     /// <summary>Library cover width in pixels; covers are 16:9, like Jellyfin's library cards.</summary>
     public int CoverWidth { get; set; } = 480;
 

@@ -31,6 +31,7 @@
                     <button type="button" id="po-redo-covers" class="po-btn po-btn-plain">Make all covers again</button>
                     <span id="po-run-covers-size" class="po-muted po-small"></span>
                 </div>
+                <p id="po-cover-plugin" class="po-muted po-small" role="note" hidden><strong>Jellyfin Animated Posters is installed and makes the library covers</strong>, so Animated Film Posters leaves them to it and the cover buttons are off. Posters are made as usual. To make covers here instead, disable or uninstall Jellyfin Animated Posters under Dashboard → Plugins.</p>
                 <div class="po-row">
                     <button type="button" id="po-stop" class="po-btn po-btn-plain" hidden>Stop</button>
                     <button type="button" id="po-restore-all" class="po-btn po-btn-danger">Put back the original posters</button>
@@ -43,7 +44,7 @@
                     </div>
                 </div>
                 <p id="po-note" class="po-note" aria-live="polite"></p>
-                <p class="po-muted po-small">New films and series get a poster each night from the <strong>Make animated posters</strong> scheduled task. A poster you change yourself (or a metadata refresh that replaces images) is left alone; <strong>Make all posters again</strong> replaces those too. Sizes are estimates from the settings below, measured on the ones made so far.</p>
+                <p class="po-muted po-small">New films and series get a poster a few minutes after they're added (see <strong>New films and series</strong> under Settings), and any still without one get it each night from the <strong>Make animated posters</strong> scheduled task. A poster you change yourself (or a metadata refresh that replaces images) is left alone; <strong>Make all posters again</strong> replaces those too. Sizes are estimates from the settings below, measured on the ones made so far.</p>
             </section>
 
             <!-- Preview -->
@@ -84,6 +85,7 @@
                 <fieldset>
                     <legend>Posters</legend>
                     <p class="po-muted po-small">Jellyfin sends GIF posters at their full size (that's what keeps them moving), so every poster on a page is downloaded whole. Smaller, shorter and fewer colours make lighter files.</p>
+                    <label class="po-check"><input type="checkbox" id="po-new-soon"> <strong>New films and series:</strong> make a poster a few minutes after one is added, instead of waiting for the night <span class="po-muted po-small">(it waits until nothing new has arrived for 10 minutes; more than 25 at once, such as a new library, are left to the nightly run)</span></label>
                     <label class="po-check"><input type="checkbox" id="po-title"> The title</label>
                     <label class="po-check"><input type="checkbox" id="po-frame"> A rounded white frame</label>
                     <label class="po-field"><span>Font</span>
@@ -417,6 +419,7 @@
                     setSelect('po-fps', s.framesPerSecond);
                     setSelect('po-colours', s.colours);
                     $('po-covers').checked = !!s.makeLibraryCovers;
+                    $('po-new-soon').checked = s.makeNewTitlesSoon !== false;
                     $('po-cover-title').checked = !!s.coverShowTitle;
                     $('po-cover-frame').checked = !!s.coverShowFrame;
                     setSelect('po-cover-width', s.coverWidth);
@@ -470,6 +473,7 @@
                         showTitle: $('po-title').checked,
                         showFrame: $('po-frame').checked,
                         makeLibraryCovers: $('po-covers').checked,
+                        makeNewTitlesSoon: $('po-new-soon').checked,
                         coverWidth: num('po-cover-width'),
                         coverMoments: num('po-cover-moments'),
                         coverMomentTenths: num('po-cover-moment-length'),
@@ -561,7 +565,10 @@
 
                     $('po-progress').hidden = !s.running;
                     $('po-stop').hidden = !s.running || !!(s.progress && s.progress.kind === 'restore');
-                    ['po-run', 'po-redo', 'po-run-covers', 'po-redo-covers'].forEach(function (id) { $(id).disabled = s.running; });
+                    ['po-run', 'po-redo'].forEach(function (id) { $(id).disabled = s.running; });
+                    // Jellyfin Animated Posters makes the library covers when it's installed, so these are off.
+                    ['po-run-covers', 'po-redo-covers'].forEach(function (id) { $(id).disabled = s.running || !!s.coverPluginActive; });
+                    $('po-cover-plugin').hidden = !s.coverPluginActive;
                     $('po-restore-all').disabled = s.running || (s.made === 0 && !s.coversMade);
                     if (s.running) {
                         const p = s.progress;
@@ -726,7 +733,8 @@
                             img.hidden = false;
                             $('po-preview-frame').classList.toggle('po-wide', cover);
                             $('po-preview-empty').hidden = true;
-                            $('po-preview-use').hidden = false;
+                            // A cover can't be used while Jellyfin Animated Posters makes the library covers.
+                            $('po-preview-use').hidden = cover && !!(status && status.coverPluginActive);
                             $('po-preview-use').textContent = 'Use this one for ' + r.title;
                         });
                     }).catch(function () {

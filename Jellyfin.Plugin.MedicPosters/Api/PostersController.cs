@@ -50,6 +50,7 @@ public class PostersController : ControllerBase
         // Streams (IPTV, .strm) never get one, so they don't count towards what a run will make.
         var makeable = titles.Where(t => !t.IsShortcut).ToList();
         var progress = _service.Progress;
+        bool coverPluginActive = _service.CoverPluginActive;
         bool running = progress is not null
             || _taskManager.ScheduledTasks.Any(t => t.ScheduledTask is MakePostersTask && t.State != TaskState.Idle);
 
@@ -67,6 +68,7 @@ public class PostersController : ControllerBase
                 showTitle = config.ShowTitle,
                 showFrame = config.ShowFrame,
                 makeLibraryCovers = config.MakeLibraryCovers,
+                makeNewTitlesSoon = config.MakeNewTitlesSoon,
                 coverWidth = config.CoverWidth,
                 coverMoments = config.CoverMoments,
                 coverMomentTenths = config.CoverMomentTenths,
@@ -101,7 +103,9 @@ public class PostersController : ControllerBase
             films = titles.Count,
             made = minePosters.Count,
             averageBytes = minePosters.Count == 0 ? 0 : (long)minePosters.Average(p => p.Bytes),
-            coverLibraries = config.MakeLibraryCovers ? libraries.Count : 0,
+            coverLibraries = config.MakeLibraryCovers && !coverPluginActive ? libraries.Count : 0,
+            // Jellyfin Animated Posters makes library covers itself, so this plugin leaves them to it.
+            coverPluginActive,
             coversMade = mine.Count(p => p.Kind == PosterService.CoverKind),
             // For the page's size estimate, which it works out from the settings on screen.
             estimate = new
@@ -173,6 +177,7 @@ public class PostersController : ControllerBase
         c.ShowTitle = request.ShowTitle ?? c.ShowTitle;
         c.ShowFrame = request.ShowFrame ?? c.ShowFrame;
         c.MakeLibraryCovers = request.MakeLibraryCovers ?? c.MakeLibraryCovers;
+        c.MakeNewTitlesSoon = request.MakeNewTitlesSoon ?? c.MakeNewTitlesSoon;
         c.CoverWidth = Math.Clamp(request.CoverWidth ?? c.CoverWidth, 240, 960) / 2 * 2;
         c.CoverMoments = Math.Clamp(request.CoverMoments ?? c.CoverMoments, 1, 6);
         c.CoverMomentTenths = Math.Clamp(request.CoverMomentTenths ?? c.CoverMomentTenths, 5, 30);
@@ -348,6 +353,11 @@ public class PostersController : ControllerBase
             return Conflict(new { error = "Posters are already being made." });
         }
 
+        if (kind == PosterService.CoverKind && _service.CoverPluginActive)
+        {
+            return Conflict(new { error = PosterService.CoverPluginNote });
+        }
+
         _service.RedoAllNextRun = redoAll;
         _service.NextRunKind = kind is PosterService.PosterKind or PosterService.CoverKind ? kind : null;
         _taskManager.QueueScheduledTask<MakePostersTask>();
@@ -403,6 +413,8 @@ public class PosterSettingsRequest
     public bool? ShowFrame { get; set; }
 
     public bool? MakeLibraryCovers { get; set; }
+
+    public bool? MakeNewTitlesSoon { get; set; }
 
     public int? CoverWidth { get; set; }
 

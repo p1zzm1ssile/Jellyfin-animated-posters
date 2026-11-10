@@ -16,5 +16,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 
         // Puts the animated poster back when a metadata refresh swaps the film's own one in again.
         serviceCollection.AddHostedService<PosterKeeper>();
+
+        // Makes posters for new films and series a few minutes after they're added.
+        serviceCollection.AddHostedService<NewTitleWatcher>();
     }
 }

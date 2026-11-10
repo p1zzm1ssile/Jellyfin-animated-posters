@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.MedicPosters.Configuration;
+using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -52,16 +53,28 @@ public class PosterService
         null // "Mixed content"
     };
 
+    /// <summary>Jellyfin Animated Posters, the library covers plugin from this repository.</summary>
+    public static readonly Guid CoverPluginId = Guid.Parse("ba3b88b5-029c-4a6f-90b3-734af8385652");
+
+    /// <summary>Why library covers are left alone while Jellyfin Animated Posters is installed.</summary>
+    public const string CoverPluginNote =
+        "Jellyfin Animated Posters is installed and makes the library covers, so Animated Film Posters leaves them to it. Posters are made as usual.";
+
+    /// <summary>Most new titles made straight away; a bigger batch, such as a new library's first scan, is left to the nightly run.</summary>
+    public const int MostNewTitlesAtOnce = 25;
+
     private readonly ILibraryManager _libraryManager;
+    private readonly IPluginManager _pluginManager;
     private readonly PosterMaker _maker;
     private readonly PosterStore _store;
     private readonly ILogger<PosterService> _logger;
     private readonly SemaphoreSlim _running = new(1, 1);
     private volatile RunProgress? _progress;
 
-    public PosterService(ILibraryManager libraryManager, PosterMaker maker, PosterStore store, ILogger<PosterService> logger)
+    public PosterService(ILibraryManager libraryManager, IPluginManager pluginManager, PosterMaker maker, PosterStore store, ILogger<PosterService> logger)
     {
         _libraryManager = libraryManager;
+        _pluginManager = pluginManager;
         _maker = maker;
         _store = store;
         _logger = logger;
@@ -80,6 +93,17 @@ public class PosterService
     public (Guid ItemId, string Kind, PosterSpec Spec)? LastPreview { get; private set; }
 
     public RunProgress? Progress => _progress;
+
+    /// <summary>
+    /// Whether Jellyfin Animated Posters is installed and turned on. It makes animated library covers too, and treats
+    /// any other change to a library's picture as an upload and pins it, so the two would keep replacing each
+    /// other's covers. While it's on, this plugin makes no library covers.
+    /// </summary>
+    public bool CoverPluginActive => IsCoverPluginActive(_pluginManager.Plugins);
+
+    /// <summary>Whether Jellyfin Animated Posters is among these plugins, enabled.</summary>
+    public static bool IsCoverPluginActive(IEnumerable<LocalPlugin> plugins) =>
+        plugins.Any(p => p.Id == CoverPluginId && p.IsEnabledAndSupported);
 
     /// <summary>Every library on the server with videos in it: films, TV, home videos, music videos and mixed.</summary>
     public IReadOnlyList<(Guid Id, string Name)> Libraries() =>
@@ -315,7 +339,7 @@ public class PosterService
             var posterSpec = PosterSpec.From(config);
             var coverSpec = PosterSpec.CoverFrom(config);
             // The nightly run makes covers only when they're switched on; "Make library covers now" always does.
-            bool covers = only == CoverKind || (only is null && config.MakeLibraryCovers);
+            bool covers = (only == CoverKind || (only is null && config.MakeLibraryCovers)) && !CoverPluginActive;
             bool posters = only != CoverKind;
             var jobs = CoverTargets(config).Where(_ => covers).Select(l => ((BaseItem)l, CoverKind))
                 .Concat(Titles().Where(_ => posters).Select(t => (t, PosterKind)))
@@ -379,6 +403,66 @@ public class PosterService
             _progress = null;
             _running.Release();
             _logger.LogInformation("Animated Film Posters: made {Made}, failed {Failed}, left {LeftAlone} alone", summary.Made, summary.Failed, summary.LeftAlone);
+        }
+    }
+
+    /// <summary>
+    /// Makes posters for titles that were just added and have none yet, in the chosen libraries. Titles added in a big
+    /// batch, more than <see cref="MostNewTitlesAtOnce"/>, are left to the nightly run so a new library's first scan
+    /// doesn't keep the server busy during the day. Returns false when another run is going, so the caller can try later.
+    /// </summary>
+    public async Task<bool> MakeNewAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
+    {
+        if (!await _running.WaitAsync(0, ct).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        int made = 0, failed = 0;
+        try
+        {
+            var config = Plugin.Instance!.Configuration;
+            if (!config.MakeNewTitlesSoon || ids.Count == 0)
+            {
+                return true;
+            }
+
+            var wanted = ids.ToHashSet();
+            var titles = Titles(config)
+                .Where(t => wanted.Contains(t.Id) && !IsStream(t) && _store.Read(s => s.Posters.GetValueOrDefault(t.Id)) is null)
+                .ToList();
+            if (titles.Count > MostNewTitlesAtOnce)
+            {
+                _logger.LogInformation("Animated Film Posters: {Count} new titles; leaving them to the nightly run", titles.Count);
+                return true;
+            }
+
+            var spec = PosterSpec.From(config);
+            for (int i = 0; i < titles.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                _progress = new RunProgress { Total = titles.Count, Done = i, Current = titles[i].Name };
+                string? error = await MakeForAsync(titles[i], PosterKind, spec, config, ct).ConfigureAwait(false);
+                if (error is null)
+                {
+                    made++;
+                }
+                else
+                {
+                    failed++;
+                }
+            }
+
+            return true;
+        }
+        finally
+        {
+            _progress = null;
+            _running.Release();
+            if (made + failed > 0)
+            {
+                _logger.LogInformation("Animated Film Posters: new titles, made {Made}, failed {Failed}", made, failed);
+            }
         }
     }
 
@@ -458,6 +542,11 @@ public class PosterService
         if (LastPreview is not { } last || !File.Exists(_store.PreviewPath))
         {
             return (null, "Make a preview first.");
+        }
+
+        if (last.Kind == CoverKind && CoverPluginActive)
+        {
+            return (null, CoverPluginNote);
         }
 
         if (_libraryManager.GetItemById(last.ItemId) is not BaseItem item)

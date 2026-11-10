@@ -24,7 +24,7 @@ version.
 1. In Jellyfin, open **Dashboard**, then **Plugins**, then **Repositories**, and add this repository URL:
 
    ```
-   https://raw.githubusercontent.com/p1zzm1ssile/Jellfin-animated-posters/main/manifest.json
+   https://raw.githubusercontent.com/p1zzm1ssile/Jellyfin-animated-posters/main/manifest.json
    ```
 
 2. Open the **Catalog**, install **Jellyfin Animated Posters** and/or **Animated Film Posters**, and restart Jellyfin.
@@ -151,11 +151,18 @@ An animated poster for every film and series, and an animated cover for every li
 - **Library covers too.** Each library with videos in it (films, TV, home videos, music videos) gets a wide cover,
   the shape of Jellyfin's library cards, cut from moments of a few random things in it with the library's name on it.
   It's a GIF as well, so it moves on the home screen. Covers have their own settings, separate from the posters'.
+  If **Jellyfin Animated Posters** is installed too, it makes the library covers and Animated Film Posters leaves them
+  to it (the cover buttons are turned off and its page says why), so the two don't keep replacing each other's covers.
+  Posters are made as usual. Disable or uninstall Jellyfin Animated Posters to make covers here again.
 - **Your own posters are kept.** Nothing in your media folders is changed or deleted: the GIFs live in the server's
   data folder, and each film's own poster is remembered. **Put back** under any poster, or **Put back the original
   posters**, brings them back. Putting them all back carries on on the server even if you leave the page, which shows
   how far it has got.
-- **New films get one each night** from the **Make animated posters** scheduled task. A poster you change yourself,
+- **New films get one within minutes.** A few minutes after a new film or series is added (once nothing new has
+  arrived for 10 minutes, so a scan is done in one go), it gets its poster, and so does a series whose first episodes
+  have just arrived. More than 25 new titles at once, such as a new library's first scan, are left to the nightly
+  **Make animated posters** scheduled task so the server isn't kept busy during the day, and that task also catches
+  anything missed. Untick **New films and series** under Posters to leave everything to the nightly run. A poster you change yourself,
   or that a metadata refresh replaces, is left alone. **Make all posters again** and **Make all covers again** redo
   them all. While a run is going, the page shows which one it's on and roughly how much time is left.
 - **A preview** shows a poster or a cover with the settings on screen, saved or not, and its size, without changing
@@ -221,7 +228,7 @@ yourself (or making the release on GitHub's Releases page) still works, and does
 
 ## If you ran the container
 
-The old container version is still in place, however if you are using it for only Jellfin the plugin it a easier option and can do alot more. Covers you made with it can be uploaded on the plugin's
+The old container version is still available, but if you only use it with Jellyfin, the plugin is easier and can do a lot more. Covers you made with it can be uploaded on the plugin's
 Dashboard page (**Upload cover** on the library's card). If you added custom CSS in Dashboard, Branding, Custom CSS
 code to show a cover, remove it: the cover is now the library's Primary image and needs no CSS.
 
